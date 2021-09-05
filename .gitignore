@@ -1,0 +1,12 @@
+*.db
+*~
+*.df
+*.txt
+*.dot
+*.png
+*.pdf
+*.sh
+*.egg-info
+__pycache__
+.direnv
+.envrc

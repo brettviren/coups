@@ -1,0 +1,212 @@
+#+title: coups - Pecking 🐔 at Containers for UPS Products
+
+
+* What is in the coups?
+
+The *coups* package provides some tools to make sense of the complexity of
+UPS "products" and their groupings into "manifests" as made available
+by the scisoft server.
+
+*coups* consists of:
+
+- a scisoft manifest downloader
+- a database schema to receive the information
+- various simple and not so simple queries
+- a generator of Dockerfiles and graphs
+- Python modules with a command line interface
+
+The section [[Taxonomy]] below describes terms used by *coups* for those not
+familiar with the scisoft ecosystem.
+
+* What can I do?
+
+The ~coups~ command line can answer questions like:
+
+- What products or manifests match a given subset of identifiers?
+
+- What products are in a manifest and what manifests provide a package?
+
+- What other manifests provide a strict or a near subset of products provided by a given manifest?
+
+- What does the bijective graph of a set of manifests and products look like?
+
+- How can I build Docker layers that cleave at manifest boundaries?
+
+* Taxonomy
+
+The scisoft server provides organized views of two information
+entities:
+
+- product :: identify a UPS package
+
+- manifest :: identify a set of products
+
+A *product* and a *manifest* are fully identified by providing:
+
+- name :: a simple, short name
+
+- vunder :: a version in the form ~vX_Y_Z~
+
+- flavor :: a name encoding OS, kernal, libc
+
+- qualifiers :: a set of tags defining details of the compilation
+  performed to build a product (compiler, profiling vs debug)
+
+Notes:
+
+- The *name* of a *manifest* is sometimes called a *bundle*.  A list of
+  bundles is available here: https://scisoft.fnal.gov/scisoft/bundles/
+
+- The *vunder* takes canonical form in some contexts and in others it
+  takes the form ~X.Y.Z~.  This second form is called (in *coops*) a
+  *version*.
+
+- Both *product* and *manifest* have an associated *filename*.  For a
+  product it names a tar file which holds its contents.  For a
+  manifest it names the file containing the list of products.
+
+The content of a manifest gives a list of fully qualified UPS
+"products".  A product is qualified by the same properties as a
+manifest itself.  The product filename names a tar file holding the
+contents of the UPS product.
+
+A manifest can be used by the [[https://scisoft.fnal.gov/scisoft/bundles/tools/pullProducts][pullProducts]] script to install its
+products and it is easy enough to build a container with this script,
+given a suitable base OS.
+
+* Examples
+
+** Download manifests and fill database
+
+#+begin_example
+❯ python -m coups load-bundle https://scisoft.fnal.gov/scisoft/bundles/larsoft
+....long first time load
+❯ python -m coups load-bundle https://scisoft.fnal.gov/scisoft/bundles/larsoft
+have manifest, not refreshing at:
+https://scisoft.fnal.gov/scisoft/bundles/larsoft/v09_28_04/manifest/larsoft-09.28.04-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt
+#+end_example
+
+** List known bundles
+
+#+begin_example
+❯ coups bundles
+art artbase artdev canvas_base cmake_base dune geant4 icarus larbase larsoft larsoftobj larwire larwirebase python_tools uboone
+#+end_example
+
+** Compare two manifests
+
+#+begin_example
+❯ python -m coups compare {larsoft,larbase}-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt
+only larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt:
+	cetbuildtools-8.13.03-noarch.tar.bz2
+	...
+both
+	TRACE-3.17.01-sl7-x86_64.tar.bz2
+	...
+only larbase-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt:
+	cmake-3.19.6-sl7-x86_64.tar.bz2
+	cmake-3.20.0-sl7-x86_64.tar.bz2
+	sphinx-3.5.4a-sl7-x86_64.tar.bz2
+#+end_example
+
+** Compare two bundles
+
+This will look for all manifests, assuming the two bundles differ only
+in their name, and show the set-differences.
+
+#+begin_example
+❯ python -m coups compare-bundles larsoft larbase
+(24, 128, 1) larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt larbase-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+(24, 129, 1) larsoft-09.28.04-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt larbase-09.28.04-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt
+...
+#+end_example
+
+
+** Explore what products exist
+
+#+begin_example
+❯ coups products -v v0_16_0a  wirecell
+wirecell v0_16_0a wirecell-0.16.0a-sl7-x86_64-c7-debug.tar.bz2 -f Linux64bit+3.10-2.17 -q c7:debug
+wirecell v0_16_0a wirecell-0.16.0a-sl7-x86_64-c7-prof.tar.bz2 -f Linux64bit+3.10-2.17 -q c7:prof
+wirecell v0_16_0a wirecell-0.16.0a-sl7-x86_64-e20-debug.tar.bz2 -f Linux64bit+3.10-2.17 -q e20:debug
+wirecell v0_16_0a wirecell-0.16.0a-sl7-x86_64-e20-prof.tar.bz2 -f Linux64bit+3.10-2.17 -q e20:prof
+#+end_example
+
+** Explore what manifests provide products
+
+#+begin_example
+❯ coups contains -v v0_16_0a  wirecell
+wirecell-0.16.0a-sl7-x86_64-c7-debug.tar.bz2
+	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt
+	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt
+	larbase-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt
+wirecell-0.16.0a-sl7-x86_64-c7-prof.tar.bz2
+	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-prof_MANIFEST.txt
+	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-c7-prof_MANIFEST.txt
+	larbase-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-prof_MANIFEST.txt
+wirecell-0.16.0a-sl7-x86_64-e20-debug.tar.bz2
+	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-debug_MANIFEST.txt
+	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-e20-debug_MANIFEST.txt
+	larbase-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-debug_MANIFEST.txt
+wirecell-0.16.0a-sl7-x86_64-e20-prof.tar.bz2
+	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+	larbase-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+#+end_example
+
+** Explore what manifests exist
+
+#+begin_example
+❯ coups manifest larsoft -v 09.28.04 
+larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+larsoft-09.28.04-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt
+larsoft-09.28.04-Linux64bit+3.10-2.17-s110-c7-prof_MANIFEST.txt
+larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-debug_MANIFEST.txt
+
+❯ coups manifests larsoft -v 09.28.04
+larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+	ups-6.0.8-Linux64bit+3.10-2.17.tar.bz2
+	...
+larsoft-09.28.04-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt
+	ups-6.0.8-Linux64bit+3.10-2.17.tar.bz2        
+	...
+...
+#+end_example
+
+
+** Find subset manifests
+
+*** Strict subset
+
+#+begin_example
+❯ coups subsets -v 09.28.04 -f Linux64bit+3.10-2.17 -q e20:prof -n 0 larsoft
+larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+	larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+	larwire-09.02.13-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+	larsoftobj-09.07.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+#+end_example
+
+*** Near subsets
+
+#+begin_example
+❯ coups subsets -v 09.28.04 -f Linux64bit+3.10-2.17 -q e20:prof -n 1 larsoft
+larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+	larbase-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+	+ sphinx
+	larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+	art-3.06.03d-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	+ sphinx
+...
+#+end_example
+
+** Generate Dockerfiles
+
+The main goal of *coups* is to produce Docker images which have layers
+that mirror the subset structure implicit in manifests.  To do that,
+*coups* can generate individual Dockerfiles and a shell script that will
+call ~docker~ to build them.
+
+#+begin_example
+❯ coups dockerfiles larsoft -v 09.28.04 -q e20:prof -f Linux64bit+3.10-2.17
+❯ bash larsoft-09.28.04-Linux64bit+3.10-2.17-e20-prof-build.sh
+#+end_example

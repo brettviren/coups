@@ -15,42 +15,28 @@ by the scisoft server.
 - a generator of Dockerfiles and graphs
 - Python modules with a command line interface
 
-The section [[Taxonomy]] below describes terms used by *coups* for those not
-familiar with the scisoft ecosystem.
-
-* What can I do?
-
-The ~coups~ command line can answer questions like:
-
-- What products or manifests match a given subset of identifiers?
-
-- What products are in a manifest and what manifests provide a package?
-
-- What other manifests provide a strict or a near subset of products provided by a given manifest?
-
-- What does the bijective graph of a set of manifests and products look like?
-
-- How can I build Docker layers that cleave at manifest boundaries?
-
 * Taxonomy
 
-The scisoft server provides organized views of two information
-entities:
+Before getting in to what ~coups~ can do, some terminology needs
+defining.  The scisoft server provides organized views of UPS package
+information based on two primary taxons:
 
 - product :: identify a UPS package
 
 - manifest :: identify a set of products
 
-A *product* and a *manifest* are fully identified by providing:
+Both a *product* and a *manifest* are fully identified by providing four
+types of information.
 
 - name :: a simple, short name
 
 - vunder :: a version in the form ~vX_Y_Z~
 
-- flavor :: a name encoding OS, kernal, libc
+- flavor :: a name encoding OS, kernal, libc.
 
-- qualifiers :: a set of tags defining details of the compilation
-  performed to build a product (compiler, profiling vs debug)
+- qualifiers :: a set of tags ("quals") defining details of the
+  compilation performed to build a product (compiler, profiling vs
+  debug).
 
 Notes:
 
@@ -65,23 +51,49 @@ Notes:
   product it names a tar file which holds its contents.  For a
   manifest it names the file containing the list of products.
 
-The content of a manifest gives a list of fully qualified UPS
-"products".  A product is qualified by the same properties as a
-manifest itself.  The product filename names a tar file holding the
-contents of the UPS product.
+- There is always a *flavor* but it may be "source" or "NULL".
 
-A manifest can be used by the [[https://scisoft.fnal.gov/scisoft/bundles/tools/pullProducts][pullProducts]] script to install its
-products and it is easy enough to build a container with this script,
-given a suitable base OS.
+- The set of qualifiers may be empty.
+
+The content of a manifest gives a list of fully qualified UPS
+"products".  The product filename names a tar file holding the
+contents of the UPS product which is also available for download from
+the scisoft server.  A manifest can be used by the [[https://scisoft.fnal.gov/scisoft/bundles/tools/pullProducts][pullProducts]] script
+to install its products from these tar files.  It is then easy enough
+to build a container with this script, given a suitable base OS.
+
+* What can I do with ~coups~?
+
+The ~coups~ command can:
+
+- List products or manifests matching given identifiers.
+
+- List products that are in a manifest.
+
+- List manifests that provide a package.
+
+- Render graphs showing product/manifest relationships.
+
+- Factor manifests into subsets defined by other manifests.
+
+- Render a script to build containers which are layered by manifest
+  subsets.
+
 
 * Examples
+
+This section gives a tour of commands.  Any command which accepts a
+description of a manifest in terms of its name, version, flavor and
+quals may instead of the name be a manifest file name.  When given,
+the name, version and flavor are parsed from the filename and if these
+values are also given then they override what the filename provides.
 
 ** Download manifests and fill database
 
 #+begin_example
-❯ python -m coups load-bundle https://scisoft.fnal.gov/scisoft/bundles/larsoft
+❯ coups load-bundle https://scisoft.fnal.gov/scisoft/bundles/larsoft
 ....long first time load
-❯ python -m coups load-bundle https://scisoft.fnal.gov/scisoft/bundles/larsoft
+❯ coups load-bundle https://scisoft.fnal.gov/scisoft/bundles/larsoft
 have manifest, not refreshing at:
 https://scisoft.fnal.gov/scisoft/bundles/larsoft/v09_28_04/manifest/larsoft-09.28.04-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt
 #+end_example
@@ -96,7 +108,7 @@ art artbase artdev canvas_base cmake_base dune geant4 icarus larbase larsoft lar
 ** Compare two manifests
 
 #+begin_example
-❯ python -m coups compare {larsoft,larbase}-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt
+❯ coups compare {larsoft,larbase}-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt
 only larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt:
 	cetbuildtools-8.13.03-noarch.tar.bz2
 	...
@@ -112,10 +124,14 @@ only larbase-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt:
 ** Compare two bundles
 
 This will look for all manifests, assuming the two bundles differ only
-in their name, and show the set-differences.
+in their name, and show a trio of set-differences: 
+
+#+begin_center
+(only in first, intersection, only in second)
+#+end_center
 
 #+begin_example
-❯ python -m coups compare-bundles larsoft larbase
+❯ coups compare-bundles larsoft larbase
 (24, 128, 1) larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt larbase-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
 (24, 129, 1) larsoft-09.28.04-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt larbase-09.28.04-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt
 ...
@@ -176,37 +192,130 @@ larsoft-09.28.04-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt
 
 ** Find subset manifests
 
+A (parent) manifest may be factored into one or more children
+manifests such that a child provides products also provided by the
+parent.  A child may be a strict or a "near" subset of the parent.  A
+strict subset provides no additional products not also provided by the
+parent.  A "near" subset provides some number of additional products.
+
 *** Strict subset
 
+Here, ~coups~ factors the manifest, identified by a fully-qualifying
+manifest filename, into strict subsets.
+
 #+begin_example
-❯ coups subsets -v 09.28.04 -f Linux64bit+3.10-2.17 -q e20:prof -n 0 larsoft
-larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
-	larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
-	larwire-09.02.13-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
-	larsoftobj-09.07.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+❯ coups subsets larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+	larsoftobj-09.07.01.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
 #+end_example
 
 *** Near subsets
 
-#+begin_example
-❯ coups subsets -v 09.28.04 -f Linux64bit+3.10-2.17 -q e20:prof -n 1 larsoft
-larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
-	larbase-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
-	+ sphinx
-	larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
-	art-3.06.03d-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
-	+ sphinx
-...
-#+end_example
-
-** Generate Dockerfiles
-
-The main goal of *coups* is to produce Docker images which have layers
-that mirror the subset structure implicit in manifests.  To do that,
-*coups* can generate individual Dockerfiles and a shell script that will
-call ~docker~ to build them.
+Here, the ~coups~ allows for a subset to be considered a factor if it
+provides no more than 1 additional product not in the original
+manifest.
 
 #+begin_example
-❯ coups dockerfiles larsoft -v 09.28.04 -q e20:prof -f Linux64bit+3.10-2.17
-❯ bash larsoft-09.28.04-Linux64bit+3.10-2.17-e20-prof-build.sh
+❯ coups subsets -n1 larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+	geant4-4.10.3-Linux64bit+3.19-2.19-e12-qt-debug_MANIFEST.txt
+	+ ups
+	larsoft-0.02.00-Linux64bit+2.6-2.12-debug_MANIFEST.txt
+	+ ups
+	...
 #+end_example
+
+*** Extra subsets
+
+Some manifests are "distant near" subsets in that they add many
+additional products.  If a flat factoring were to be attempted that
+allows for the required additional products then many subsets would be
+found that enlarge the product pool in unwanted ways
+
+#+begin_example
+# don't want this
+❯ coups subsets -n5 larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+        ...
+	icarus-09.22.03.01-Linux64bit+3.10-2.17-e20-debug_MANIFEST.txt
+	+ icaruscode, icarus_signal_processing, icarusutil, icarus_data, icarusalg
+        ...
+	art-3.09.03-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	+ cmake, cmake, cmake, cmake, sphinx
+        ...
+#+end_example
+
+Here we find ~art~ is a "distant near" subset.  We may decide it's many
+versions of ~cmake~ and the one ~sphinx~ which it adds beyond the manifest
+we target is perhaps acceptable compromise to gain the benefit of
+letting this layer be exposed as its own container (so users wanting
+~art~ but not ~larsoft~ may access it.
+
+However, we also find many other manifests that are near subsets at
+the same distance but which add substantially large products which we
+know from understanding the larger ecosystem.  
+
+We can give ~coups~ this extra information to guide the factoring:
+
+#+begin_example
+❯ coups subsets --extras art:5 larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+	art-3.09.03-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	+ cmake, cmake, cmake, sphinx, cmake
+	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+	larsoftobj-09.07.01.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+#+end_example
+
+We suspect further factoring may exist:
+
+#+begin_example
+art-3.09.03-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	canvas_base-3.12.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	art-3.09.03-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+#+end_example
+
+Thus, define a final factoring:
+
+#+begin_example
+larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+	canvas_base-3.12.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	+ cmake, cmake, sphinx, cmake, cmake
+	art-3.09.03-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	+ cmake, cmake, sphinx, cmake, cmake
+	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+	larsoftobj-09.07.01.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+#+end_example
+
+It is important to understand that this factoring is based on
+information that has been put into the database.  If, for this
+example, ~canvas_base~ bundle was not loaded, this last factoring would
+not be discovered.  To assure exhaustive factoring, one must scrape
+all available bundles.
+
+** Generate Well Layered Containers
+
+The main goal of *coups* is to produce container images which have
+layers that mirror the subset structure implicit in manifests.  We
+wish the layering to be as fine grained as possible in order to enable
+maximal reuse with minimal image size.  As in the example above, one
+user may wish to have ~art~ without the addition of ~larsoft~ while
+another may require all of ~larsoft~.
+
+To build such containers, one first explores the factoring as above
+and then transfers the command from ~subsets~ to ~container~.
+
+
+#+begin_example
+❯ coups container -o build.sh --builder docker \
+  --extras art:5,canvas_base:5 \
+  larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt 
+❯ bash build.sh
+❯ docker run -ti brettviren/coups-larsoft:09.28.02.01-Linux64bit-3.10-2.17-e20-prof
+[root@64c328144753 /]#
+#+end_example
+
+
+

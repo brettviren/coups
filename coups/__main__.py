@@ -5,8 +5,13 @@ import click
 from collections import namedtuple
 
 import coups
+from coups.manifest import wash_name
 
 @click.group()
+@click.option('--url',
+              default='https://scisoft.fnal.gov/scisoft/',
+              envvar='COUPS_URL',
+              help="Base URL for scisoft collection")
 @click.option("-s", "--store", 
               type=click.Path(dir_okay=False, file_okay=True,
                               resolve_path=True),
@@ -14,8 +19,8 @@ import coups
               default="coups.db",
               help="The coups store")
 @click.pass_context
-def cli(ctx, store):
-    ctx.obj = coups.Coups(store)
+def cli(ctx, url, store):
+    ctx.obj = coups.Coups(store, url)
 
 
 @cli.command("load-manifest")
@@ -33,40 +38,39 @@ def load_manifest(ctx, manifest):
               help="If refresh, then will re-read existing")
 @click.option("--newer", default=None,
               help="Only load those with vunders lexically greater or equal than")
-@click.argument("url")
+@click.option("--versions", default="",
+              help="Comma-separated list of versions to consider")
+@click.argument("bundle")
 @click.pass_context
-def load_bundle(ctx, refresh, newer, url):
+def load_bundle(ctx, refresh, newer, versions, bundle):
     '''
-    Load a bundle of manifests (file or URL) into db.
+    Load a bundle of manifests (name, manifest file or URL) into db.
 
-    If a manifest file or area is given, load unconditionally.
+    If a manifest file is given, load unconditionally.
 
-    If a bundle URL is given, then "newer" and "refresh" applies
+    Otherwise, if a bundle name or an unqualifed URL is given, scisoft
+    will be scraped and the "newer" and "refresh" options apply.
     '''
 
     from coups.scrape import table
 
-    parts = url.split("/")
-    if not parts[-1]:
-        parts.pop()
-
-    if parts[-1][0] == "v":
-        url = os.path.join(url, "manifest")
-        parts.append("manifest")
-
-    if parts[-1] == "manifest":
-        for one in table(url):
-            print (one)
-            ctx.obj.load_manifest(one)
+    if "_MANIFEST.txt" in bundle:
+        ctx.obj.load_manifest(one, True)
         return
 
-    # assume it is at teh bundle name level
-    for verurl in table(url):
-        if newer:
-            vunder = verurl.split("/")[-1]
-            if vunder < newer:
-                print(f'reach old {verurl} < {newer}')
-                break
+    versions = set([v for v in versions.split(',') if v])
+
+    bundle_url = os.path.join(ctx.obj.scisoft_url, "bundles", bundle)
+    for verurl in table(bundle_url):
+        vunder = verurl.split("/")[-1]
+
+        if newer and vunder < newer:
+            print(f'reach old {verurl} < {newer}')
+            break
+
+        if versions and vunder not in versions:
+            # print(f'skip {vunder}')
+            continue
 
         try:
             for one in table(os.path.join(verurl, "manifest")):
@@ -76,7 +80,7 @@ def load_bundle(ctx, refresh, newer, url):
                         print(f'have manifest, not refreshing at:\n{one}')
                         return
 
-                print (one)
+                print (f'loading: {one}')
                 ctx.obj.load_manifest(one)
         except ValueError as err:
             click.echo(err)
@@ -213,64 +217,123 @@ def compare_bundles(ctx, bundle1, bundle2):
 #     for man in ctx.obj.session.query(coups.store.Manifest).filter_by(name=name).all():
 #         print (man)
 
-@cli.command("dockerfiles")
-@click.option("-q", "--quals",
+@cli.command("container")
+@click.option("-q", "--quals", default="",
               help="Colon-separate list of qualifiers")
-@click.option("-f", "--flavor", 
+@click.option("-f", "--flavor", default=None,
               help="Platform flavor")
-@click.option("-v", "--version", 
+@click.option("-v", "--version", default=None,
               help="Version")
+@click.option("-n", "--number", default=0,
+              help="Number of extra packages a subset may supply")
+@click.option("-s", "--subsets", default = "",
+              help="Comma-separated list of allowed bundle names ot use as subsets")
+@click.option("--builder", default="docker",
+              type=click.Choice(["docker","podman","dockerfile"]),
+              help="What container builder to use")
+@click.option("-B", "--basename", default = "brettviren/coups-",
+              help="Container base name appended to every generated name")
+@click.option("--extras", default=None,
+              help="Comma-separated list bundle:number")
+@click.option("-o", "--output", default=None,
+              help="Output file, '-' is stdout, default is manifest file name")
 @click.argument("name")
 @click.pass_context
-def dockerfiles(ctx, quals, flavor, version, name):
+def container(ctx, quals, flavor, version, subsets, number, builder, basename, extras, output, name):
     '''
-    Emit a Dockerfile to build the bundle given a manifest.
+    Build a layered container or emit files to build one.
+
+    The name may be that of a bundle or it may be a manifest file
+    name.  If the latter then specifying version, flavor and quals is
+    optional.
     '''
-    from coups.manifest import parse_name
-    if name.endswith("_MANIFEST.txt"):
-        entry = parse_name(name)
-        name = entry.name
-        version = version or entry.vunder
-        flavor = flavor or entry.flavor
-        quals = quals or entry.quals
 
-    chain = ctx.obj.chain(name, version, flavor, quals)
-    chain.reverse()
+    subsets = set([s for s in subsets.split(",") if s])
 
-    dashquals = quals.replace(":","-")
-    basename = f'{name}-{version}-{flavor}-{dashquals}'
-    scriptname = f'{basename}-build.sh'
-    script = open(scriptname,"w")
-    script.write('#!/bin/bash\nset -e\nset -x\n')
+    name,version,flavor,quals = wash_name(name,version,flavor,quals)
 
-    basedf = f'{basename}-base.df'
-    with open(basedf, "w") as fp:
-        fp.write('''FROM scientificlinux/sl:7
+    mans = coups.queries.manifests(ctx.obj.session,
+                                   name, version, flavor, quals)
+    if len(mans) != 1:
+        click.echo(f'No unique manifest, found {len(mans)}')
+        return -1
+
+    man = mans[0]
+    submans = coups.queries.subsets(ctx.obj.session, man, number)
+
+    if extras:
+        for extra in extras.split(","):
+            mname,mnum = extra.split(":")
+            mnum = int(mnum)
+            more = coups.queries.subsets(ctx.obj.session, man, mnum)
+            submans += [m for m in more if m.name == mname]
+
+    submans = coups.manifest.sort_submans(man, submans)
+    
+    if subsets:
+        subsets.add(name)
+        # click.echo(f'restricting to sub-manifests: {subsets}')
+        keep=list()
+        for sm in submans:
+            if sm.name in subsets:
+                keep.append(sm)
+        submans = keep
+
+
+    base_layer_text = '''FROM scientificlinux/sl:7
 RUN \\
     yum -y install epel-release && \\
     yum -y install https://repo.ius.io/ius-release-el7.rpm && \\
     yum -y update && \\
     yum -y install curl wget tar perl redhat-lsb-core zip unzip rsync && \\
     yum clean all
-''')
+'''
+    base_layer_name = f'{basename}base:0.1' # version refers to above df text
 
-    baseimg = "brettviren/coups-base:0.1"
-    script.write(f'cat {basedf} | docker build -t {baseimg} -\n')
+    layers = [(base_layer_name, base_layer_text)]
  
-    for one in chain:
-        onedf = f'{basename}-{one.name}.df'
-        with open(onedf, "w") as fp:
-            nbq = '-'.join(one.pp_nonbuild)
-            fp.write(f'''FROM {baseimg}
+    for one in submans:
+        baseimg = layers[-1][0]
+        nbq = '-'.join(one.pp_nonbuild)
+        layer_text = f'''FROM {baseimg}
 LABEL bundle="{one.name}" version="{one.vunder}" flavor="{one.flavor}" compiler={one.pp_compiler} build={one.pp_build}
 RUN mkdir -p /products && \\
     curl https://scisoft.fnal.gov/scisoft/bundles/tools/pullProducts > pullProducts && \\
     chmod +x pullProducts && \\
     ./pullProducts -s /products slf7 {one.name}-{one.vunder} {nbq} {one.pp_build}
-''')
-        baseimg = f'brettviren/coups-{one.name}:{one.vunder}-{one.flavor}-{one.pp_compiler}-{one.pp_build}'
-        baseimg = baseimg.replace("_","-").replace("+","-")
-        script.write(f'cat {onedf} | docker build -t {baseimg} -\n')
+'''
+        layer_name = f'{basename}{one.name}:{one.vunder}-{one.flavor}-{one.pp_compiler}-{one.pp_build}'
+        layer_name = layer_name.replace("+","-")
+        layers.append((layer_name, layer_text))
+
+    lines = []
+    if builder == "dockerfile":
+        for layer in layers:
+            lines.append(f'# image name: {layer[0]}')
+            lines.append(layer[1] + '\n')
+    else:
+        lines += [
+            "#!/bin/bash",
+            "set -e",
+            "set -x",
+        ]
+        for layer in layers:
+            lines.append(f'echo "building {layer[0]}"')
+            lines.append(f'cat <<EOF | {builder} build -t {layer[0]} -')
+            lines.append(layer[1] + '\nEOF\n')
+            lines.append(f'echo "{layer[0]} done"')
+            
+    dashquals = quals.replace(":", "+")
+    if output is None:
+        filename = f'{name}-{version}-{flavor}-{dashquals}.sh'
+        click.echo(filename)
+    elif output == "-":
+        filename = "/dev/stdout"
+    else:
+        filename = output
+        click.echo(filename)
+
+    open(filename, "w").write('\n'.join(lines))
 
 
 @cli.command("products")
@@ -322,6 +385,7 @@ def manifests(ctx, quals, flavor, version, name):
     '''
     List matching manifests
     '''
+    name,version,flavor,quals = wash_name(name,version,flavor,quals)
     for m in coups.queries.manifests(ctx.obj.session,
                                      name, version, flavor, quals):
         print (m.filename)
@@ -337,17 +401,33 @@ def manifests(ctx, quals, flavor, version, name):
               help="Set the version")
 @click.option("-n", "--number", default=0,
               help="Number of extra packages a subset may supply")
+@click.option("--extras", default=None,
+              help="Comma-separated list bundle:number")
 @click.argument("name")
 @click.pass_context
-def subsets(ctx, quals, flavor, version, name, number):
+def subsets(ctx, quals, flavor, version, name, number, extras):
     '''
     Output subset manifest of matching manifests
     '''
+    name,version,flavor,quals = wash_name(name,version,flavor,quals)
+
     mans = coups.queries.manifests(ctx.obj.session,
                                    name, version, flavor, quals)
     for man in mans:
         print(man.filename)
-        for sm in coups.queries.subsets(ctx.obj.session, man, number):
+
+        submans = coups.queries.subsets(ctx.obj.session, man, number)
+
+        if extras:
+            for extra in extras.split(","):
+                mname,mnum = extra.split(":")
+                mnum = int(mnum)
+                more = coups.queries.subsets(ctx.obj.session, man, mnum)
+                submans += [m for m in more if m.name == mname]
+
+        submans = coups.manifest.sort_submans(man, set(submans))
+
+        for sm in submans:
             l,m,r = coups.manifest.cmp_objects(man, sm)
             report = '\t' + sm.filename
             if r:
@@ -356,6 +436,8 @@ def subsets(ctx, quals, flavor, version, name, number):
 
 
 @cli.command("manifest")
+@click.option("-o", "--output", default=None,
+              help="Output file, '-' is stdout, default is manifest file name")
 @click.option("-q", "--quals", default=None,
               help="Colon-separate list of qualifiers")
 @click.option("-f", "--flavor", default=None,
@@ -364,15 +446,25 @@ def subsets(ctx, quals, flavor, version, name, number):
               help="Set the version")
 @click.argument("name")
 @click.pass_context
-def manifest(ctx, quals, flavor, version, name):
+def manifest(ctx, output, quals, flavor, version, name):
     '''
-    Output mathcing manifest files
+    Output matching manifest files
     '''
+    name,version,flavor,quals = wash_name(name,version,flavor,quals)
     mans = coups.queries.manifests(ctx.obj.session,
                                    name, version, flavor, quals)
     for man in mans:
-        click.echo(man.filename)
-        with open(man.filename, "w") as fp:
+
+        if output is None:
+            filename = man.filename
+            click.echo(filename)
+        elif output == "-":
+            filename = "/dev/stdout"
+        else:
+            filename = output
+            click.echo(filename)
+
+        with open(filename, "w") as fp:
             for p in mans[0].products:
                 fp.write(p.manifest_line + '\n')
 

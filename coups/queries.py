@@ -17,7 +17,7 @@ def subsets(ses, man, diff=0):
     '''
     mids = ses.execute(f'SELECT subset.manifest_id FROM product_manifest AS subset GROUP BY subset.manifest_id HAVING SUM(subset.product_id IN (select product_id FROM product_manifest WHERE manifest_id = {man.id})) - count(*) >= -{diff}')
     mids = [m[0] for m in mids.all()]
-    return ses.query(Manifest).filter(Manifest.id.in_(mids))
+    return ses.query(Manifest).filter(Manifest.id.in_(mids)).all()
 
 
 # sqlite> select * from manifest where id IN (

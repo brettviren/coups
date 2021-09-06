@@ -3,8 +3,9 @@ from . import store as cdb
 from . import queries, graph
 
 class Coups:
-    def __init__(self, store):
+    def __init__(self, store, url):
         self.store_file = store
+        self.scisoft_url = url
 
     @property
     def session(self):

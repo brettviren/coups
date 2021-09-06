@@ -9,7 +9,6 @@ from collections import namedtuple
 Entry = namedtuple("Entry",
                    "name vunder flavor quals filename")
 
-
 b2b = dict(
     canvas = dict(bundle="canvas_base"),
     art = dict(has=["canvas"]),
@@ -44,6 +43,24 @@ def parse_name(fname):
     n,v,f,q = parse_prodname(base)
 
     return Entry(n,v,f,q, fname)
+
+def wash_name(name, version=None, flavor=None, quals=None):
+    '''
+    Return name,version,flavor,quals 4-tuple.
+
+    If name is not a manifest file name, return arguments.
+
+    Else parse it to provide defaults and any non-None arguments may
+    override.
+    '''
+    if name.endswith("_MANIFEST.txt"):
+        entry = parse_name(name)
+        name = entry.name
+        version = version or entry.vunder
+        flavor = flavor or entry.flavor
+        quals = quals or entry.quals
+    return name,version,flavor,quals
+
 
 def parse_body(text):
     '''
@@ -103,3 +120,11 @@ def cmp_objects(man1, man2):
 
 
     
+def sort_submans(man, submans):
+    '''
+    Return the subman list sorted in order of increasing number of
+    packages in common with man.
+    '''
+    submans = list(submans)
+    submans.sort(key=lambda m: cmp(man, m)[1])
+    return submans

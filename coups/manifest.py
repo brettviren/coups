@@ -81,7 +81,7 @@ def parse_body(text):
             vunder = parts.pop(0)
             fname = parts.pop(0)
         except IndexError as err:
-            print('failed to parse manifest line')
+            print(f'failed to parse manifest line: "{line}"')
             continue
         flav=""
         if len(parts) > 1:

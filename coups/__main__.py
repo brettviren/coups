@@ -47,7 +47,18 @@ def load_manifest(ctx, manifest):
     '''
     Load a manifest (file or URL) into db
     '''
-    ctx.obj.load_manifest(manifest)
+    from coups.manifest import parse_name
+    from coups.util import vunderify
+
+    if os.path.exists(manifest) or "://" in manifest:
+        ctx.obj.load_manifest(manifest, force=True)
+        return
+    entry = parse_name(manifest)
+
+    url = os.path.join(ctx.obj.scisoft_url, "bundles", entry.name, vunderify(entry.vunder), "manifest", manifest)
+    print(url)
+    ctx.obj.load_manifest(url, force=True)    
+    
 
 
 @cli.command("load-bundle")
@@ -85,6 +96,18 @@ def update(ctx):
         ctx.obj.load_bundle(bundle)
         
 
+@cli.command("remove")
+@click.argument("manifest")
+@click.pass_context
+def remove(ctx, manifest):
+    '''
+    Remove a manifest of the given filename.
+    '''
+
+    man = ctx.obj.has_manifest(manifest)
+    if not man:
+        return
+    ctx.obj.remove_manifest(man)
 
 
 # @cli.command("sub-manifests")
@@ -292,8 +315,11 @@ def container(ctx, quals, flavor, version, subsets, number, builder, basename, s
                 keep.append(sm)
         submans = keep
 
+    dhpre=""
+    if builder == "podman":
+        dhpre = "docker://"
 
-    base_layer_text = '''FROM scientificlinux/sl:7
+    base_layer_text = f'''FROM {dhpre}scientificlinux/sl:7
 RUN \\
     yum -y install epel-release && \\
     yum -y install https://repo.ius.io/ius-release-el7.rpm && \\

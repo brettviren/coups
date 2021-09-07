@@ -111,6 +111,13 @@ class Coups:
         entry = parse_name(uri)
         return self.session.query(cdb.Manifest).filter_by(filename = entry.filename).first()
 
+    def remove_manifest(self, man):
+        '''
+        Remove the manifest object from the DB.
+        '''
+        self.session.delete(man)
+        self.session.commit()        
+
     def find_manifests(self, name=None, vunder=None, quals=None, flavor=None, filename=None):
         q = self.session.query(cdb.Manifest)
         if name:

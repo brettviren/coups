@@ -19,8 +19,12 @@ def subsets(ses, man, diff=0):
     Another manifest, "other" is considered a subset if the
     cardinality of the set difference of "man" - "other" is "diff" or
     less.
+
+    Note, the query is based on sets of products.
     '''
-    mids = ses.execute(f'SELECT subset.manifest_id FROM product_manifest AS subset GROUP BY subset.manifest_id HAVING SUM(subset.product_id IN (select product_id FROM product_manifest WHERE manifest_id = {man.id})) - count(*) >= -{diff}')
+    diff *= -1
+
+    mids = ses.execute(f'SELECT subset.manifest_id FROM product_manifest AS subset GROUP BY subset.manifest_id HAVING SUM(subset.product_id IN (select product_id FROM product_manifest WHERE manifest_id = {man.id})) - count(*) >= {diff}')
     mids = [m[0] for m in mids.all()]
     return ses.query(Manifest).filter(Manifest.id.in_(mids)).all()
 

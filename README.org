@@ -378,5 +378,119 @@ brettviren/coups-canvas_base   3.12.04-Linux64bit-3.10-2.17-e20-prof-strip      
 1190	/products/gcc
 #+end_example
 
+** Different container builders
 
+Though the difference is small, ~coups~ supports use of ~docker~ or ~podman~
+in the scripts it renders.
 
+#+begin_example
+❯ coups container --builder docker [ ... ]
+❯ coups container --builder podman [ ... ]
+#+end_example
+
+** Removing unwanted manifests
+
+Some manifests are just bogus and that can cause problems.  For
+example, some manifests are largely empty which naturally foil the
+subset factoring.  To remove them from the database simply:
+
+#+begin_example
+❯ coups remove larsoft-0.02.01-Linux64bit+2.6-2.12-debug_MANIFEST.txt
+❯ coups remove geant4-4.10.3.p01a-Linux64bit+4.4-2.23-e14-qt-debug_MANIFEST.txt
+#+end_example
+
+** Fixing broken manifests with your own customization
+
+A manifest should be created in a way that respects the actual
+dependencies of its constituent products.  That is, if product A
+depends on product B of a given version, flavor, quals then B should
+be included in the manifest that includes product A.
+
+However, given that Fermilab has a giant reservoir of products and
+does not perform hermetic builds it is easy for mistakes to go
+unnoticed.  For example:
+
+#+begin_example
+❯ coups manifests dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt|egrep 'dunetpc|valgrind'
+	dunetpc-09.28.04-slf7-x86_64-e20-prof.tar.bz2
+	valgrind-3.16.1-sl7-x86_64.tar.bz2
+#+end_example
+
+But
+
+#+begin_example
+❯ grep valgrind /cvmfs/dune.opensciencegrid.org/products/dune/dunetpc/v09_28_04/ups/dunetpc.table|head -1
+    setupRequired( valgrind v3_17_0 )
+#+end_example
+
+To fix this
+
+#+begin_example
+❯ coups manifest \
+  -o dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt \
+  dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+#+end_example
+
+Edit the file written to change the ~valgrind~ line.
+
+#+begin_example
+❯ diff dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+14c14
+< valgrind             v3_17_0         valgrind-3.17.0-sl7-x86_64.tar.bz2                           -f Linux64bit+3.10-2.17    
+---
+> valgrind             v3_16_1         valgrind-3.16.1-sl7-x86_64.tar.bz2                           -f Linux64bit+3.10-2.17
+#+end_example
+
+It can now be loaded and used just like any other.
+
+However, as the "wrong" ~valgrind~ is still provided by the old subset
+manifests, unless they are also all corrected then their set "near"
+distance will be one greater and they will fall out of the subset
+factoring:
+
+#+begin_example
+❯ coups load-manifest dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+❯ coups subsets --extras art:1,canvas_base:1 dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	libtorch-1.6.0b-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+
+#+end_example
+
+Simply extend the "near" distance and hope no garbage leaks in.
+
+#+begin_example
+❯ coups subsets --extras art:2,canvas_base:2 -n1 dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	libtorch-1.6.0b-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	canvas_base-3.10.02d-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	+ valgrind, sphinx
+	art-3.06.03d-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	+ valgrind, sphinx
+	larsoftobj-09.07.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	+ valgrind
+	larwire-09.02.13-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+	+ valgrind
+	larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+	+ valgrind
+	dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	+ valgrind
+	dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+#+end_example
+
+Note the "wrong" ~dune~ manifest is a near subset.  This will be
+advantageous as the fixed container can reuse this predecessor.
+
+#+begin_example
+❯ coups container \
+  -o build-dune-fix.sh \
+  --extras art:2,canvas_base:2 -n1 \
+  dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+❯ bash build-dune-fix.sh
+#+end_example
+
+crap: however, of course ~pullProducts~ will fail because it's hardwired
+to hit scisoft!  to be continued, likely with a way to bring a
+manifest into the container to give to ~pullProducts -l <manifest>~.
+
+Hmm, and maybe that should simply be the norm....

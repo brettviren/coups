@@ -2,6 +2,11 @@
 '''
 Handle scisoft manifest/bundle files
 '''
+
+# Copyright Brett Viren 2021.
+# This file is part of coups which is free software distributed under
+# the terms of the GNU Affero General Public License.
+
 import os
 import requests
 from collections import namedtuple
@@ -76,7 +81,7 @@ def parse_body(text):
             vunder = parts.pop(0)
             fname = parts.pop(0)
         except IndexError as err:
-            print(f'failed to parse: {line}')
+            print('failed to parse manifest line')
             continue
         flav=""
         if len(parts) > 1:

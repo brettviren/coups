@@ -1,3 +1,14 @@
+#!/usr/bin/env python3
+'''
+Utility functions
+'''
+
+# Copyright Brett Viren 2021.
+# This file is part of coups which is free software distributed under
+# the terms of the GNU Affero General Public License.
+
+
+
 # eternal mixup due to spelling versions in two ways.
 def vunderify(v):
     '''

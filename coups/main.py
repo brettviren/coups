@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
+'''
+A main object used by CLI or embedded into some larger context.
+'''
+
+# Copyright Brett Viren 2021.
+# This file is part of coups which is free software distributed under
+# the terms of the GNU Affero General Public License.
+
+import os
 from . import store as cdb
 from . import queries, graph
+from coups.scrape import table
 
 class Coups:
     def __init__(self, store, url):
@@ -163,6 +173,41 @@ class Coups:
             mans += self.chain(subbun, version, flavor, quals)
         return mans
 
+
+    def load_bundle(self, bundle, refresh=False, newer=None, versions=()):
+        '''
+        Scrape scisoft for info about the bundle and load it into the DB.
+
+        If refresh is true, then load a manifest even if we already have it.
+        If newer is given, stop the scrape once we hit an older vunder.
+        If versions is given, only consider matching vunders.
+        '''
+        bundle_url = os.path.join(self.scisoft_url, "bundles", bundle)
+        for verurl in table(bundle_url):
+            vunder = verurl.split("/")[-1]
+
+            if newer and vunder < newer:
+                print(f'reach old {verurl} < {newer}')
+                break
+
+            if versions and vunder not in versions:
+                # print(f'skip {vunder}')
+                continue
+
+            try:
+                for one in table(os.path.join(verurl, "manifest")):
+                    if not refresh:
+                        have = self.has_manifest(one)
+                        if have:
+                            #print(f'have manifest, not refreshing at:\n{one}')
+                            return
+
+                    print (f'loading: {one}')
+                    self.load_manifest(one)
+            except ValueError as err:
+                print(err)
+                print("continuing...")
+                continue
 
     def load_manifest(self, uri, force=False):
         '''

@@ -2,6 +2,11 @@
 '''
 Ensconce various queries 
 '''
+
+# Copyright Brett Viren 2021.
+# This file is part of coups which is free software distributed under
+# the terms of the GNU Affero General Public License.
+
 from sqlalchemy.orm import aliased
 from coups.manifest import cmp as manifest_cmp
 from coups.store import *

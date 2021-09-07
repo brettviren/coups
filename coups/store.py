@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+'''
+Interface to database.
+'''
+
+# Copyright Brett Viren 2021.
+# This file is part of coups which is free software distributed under
+# the terms of the GNU Affero General Public License.
 
 import os
 from sqlalchemy import Table, Column, Integer, String, DateTime, ForeignKey

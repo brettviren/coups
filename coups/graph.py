@@ -1,3 +1,11 @@
+#!/usr/bin/env python3
+'''
+Build graph structure from coups objects.
+'''
+
+# Copyright Brett Viren 2021.
+# This file is part of coups which is free software distributed under
+# the terms of the GNU Affero General Public License.
 
 from .store import Product, Manifest
 import networkx as nx

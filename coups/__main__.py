@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+'''
+The coups CLI.
+'''
+
+# Copyright Brett Viren 2021.
+# This file is part of coups which is free software distributed under
+# the terms of the GNU Affero General Public License.
+
+
 import os
 import sys
 import click
@@ -20,6 +29,14 @@ from coups.manifest import wash_name
               help="The coups store")
 @click.pass_context
 def cli(ctx, url, store):
+    '''
+    coups pecks at containers for UPS products
+
+    Copyright 2021 Brett Viren.  coups is free software and comes with
+    absolutely no warranty.  License information and source code is
+    available at https://github.com/brettviren/coups
+    '''
+
     ctx.obj = coups.Coups(store, url)
 
 
@@ -51,41 +68,24 @@ def load_bundle(ctx, refresh, newer, versions, bundle):
     Otherwise, if a bundle name or an unqualifed URL is given, scisoft
     will be scraped and the "newer" and "refresh" options apply.
     '''
-
-    from coups.scrape import table
-
     if "_MANIFEST.txt" in bundle:
         ctx.obj.load_manifest(one, True)
         return
 
     versions = set([v for v in versions.split(',') if v])
+    ctx.obj.load_bundle(bundle, refresh, newer, versions)
 
-    bundle_url = os.path.join(ctx.obj.scisoft_url, "bundles", bundle)
-    for verurl in table(bundle_url):
-        vunder = verurl.split("/")[-1]
+@cli.command("update")
+@click.pass_context
+def update(ctx):
+    '''
+    Load any new bundles from list of already known bundles.
+    '''
+    for bundle in ctx.obj.names("manifest"):
+        ctx.obj.load_bundle(bundle)
+        
 
-        if newer and vunder < newer:
-            print(f'reach old {verurl} < {newer}')
-            break
 
-        if versions and vunder not in versions:
-            # print(f'skip {vunder}')
-            continue
-
-        try:
-            for one in table(os.path.join(verurl, "manifest")):
-                if not refresh:
-                    have = ctx.obj.has_manifest(one)
-                    if have:
-                        print(f'have manifest, not refreshing at:\n{one}')
-                        return
-
-                print (f'loading: {one}')
-                ctx.obj.load_manifest(one)
-        except ValueError as err:
-            click.echo(err)
-            click.echo("continuing...")
-            continue
 
 # @cli.command("sub-manifests")
 # @click.argument("manifest")
@@ -104,20 +104,31 @@ def load_bundle(ctx, refresh, newer, versions, bundle):
 @cli.command("bundles")
 @click.option("--online/--no-online", default=False,
               help="Check online instead of DB")
+@click.option("--missing/--no-missing", default=False,
+              help="List what is online but not in our DB")
 @click.pass_context
-def bundles(ctx, online):
+def bundles(ctx, online, missing):
     '''
     List known bundles
     '''
     from coups.scrape import table
-    if online:
+    if online or missing:
         url = "https://scisoft.fnal.gov/scisoft/bundles"
-        bundles = list()
-        for oneurl in table(url):
-            print (oneurl.split("/")[-1])
-        return
-        
-    print (' '.join(ctx.obj.names("manifest")))
+        there = set([oneurl.split("/")[-1] for oneurl in table(url)])
+
+
+    if not online or missing:
+        here = set(ctx.obj.names("manifest"))
+
+    if online:
+        show = there
+    elif missing:
+        show = there-here
+    else:
+        show = here
+    show = list(show)
+    show.sort()
+    print(' '.join(show))
         
         
 @cli.command("compare")
@@ -233,13 +244,15 @@ def compare_bundles(ctx, bundle1, bundle2):
               help="What container builder to use")
 @click.option("-B", "--basename", default = "brettviren/coups-",
               help="Container base name appended to every generated name")
+@click.option("-S", "--strip/--no-strip", default = False,
+              help="If true, run 'strip' on .so files")
 @click.option("--extras", default=None,
               help="Comma-separated list bundle:number")
 @click.option("-o", "--output", default=None,
               help="Output file, '-' is stdout, default is manifest file name")
 @click.argument("name")
 @click.pass_context
-def container(ctx, quals, flavor, version, subsets, number, builder, basename, extras, output, name):
+def container(ctx, quals, flavor, version, subsets, number, builder, basename, strip, extras, output, name):
     '''
     Build a layered container or emit files to build one.
 
@@ -285,13 +298,21 @@ RUN \\
     yum -y install epel-release && \\
     yum -y install https://repo.ius.io/ius-release-el7.rpm && \\
     yum -y update && \\
-    yum -y install curl wget tar perl redhat-lsb-core zip unzip rsync && \\
+    yum -y install less curl wget tar perl redhat-lsb-core zip unzip rsync && \\
     yum clean all
 '''
     base_layer_name = f'{basename}base:0.1' # version refers to above df text
 
     layers = [(base_layer_name, base_layer_text)]
  
+    stripcmd=striplab=""
+    if strip:
+        striplab="-strip"
+        # for some reason I can not figure out, the find command to
+        # remove source directories complains about them not existing,
+        # yet it actually succeeds.
+        stripcmd = "&& find /products -name '*.so' -print -exec strip {} \\; && find /products -name source -type d -exec rm -rf {} \\; || echo 'Ignore these errors'"
+
     for one in submans:
         baseimg = layers[-1][0]
         nbq = '-'.join(one.pp_nonbuild)
@@ -300,9 +321,9 @@ LABEL bundle="{one.name}" version="{one.vunder}" flavor="{one.flavor}" compiler=
 RUN mkdir -p /products && \\
     curl https://scisoft.fnal.gov/scisoft/bundles/tools/pullProducts > pullProducts && \\
     chmod +x pullProducts && \\
-    ./pullProducts -s /products slf7 {one.name}-{one.vunder} {nbq} {one.pp_build}
+    ./pullProducts -s /products slf7 {one.name}-{one.vunder} {nbq} {one.pp_build} {stripcmd}
 '''
-        layer_name = f'{basename}{one.name}:{one.vunder}-{one.flavor}-{one.pp_compiler}-{one.pp_build}'
+        layer_name = f'{basename}{one.name}:{one.vunder}-{one.flavor}-{one.pp_compiler}-{one.pp_build}{striplab}'
         layer_name = layer_name.replace("+","-")
         layers.append((layer_name, layer_text))
 
@@ -318,11 +339,12 @@ RUN mkdir -p /products && \\
             "set -x",
         ]
         for layer in layers:
-            lines.append(f'echo "building {layer[0]}"')
+            lines.append("# -------------------")
+            lines.append(f'echo "building {layer[0]}"\n')
             lines.append(f'cat <<EOF | {builder} build -t {layer[0]} -')
             lines.append(layer[1] + '\nEOF\n')
-            lines.append(f'echo "{layer[0]} done"')
-            
+            lines.append(f'echo "{layer[0]} done"\n')
+            lines.append("# -------------------\n")            
     dashquals = quals.replace(":", "+")
     if output is None:
         filename = f'{name}-{version}-{flavor}-{dashquals}.sh'

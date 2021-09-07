@@ -3,23 +3,30 @@
 
 * What is in the coups?
 
-The *coups* package provides some tools to make sense of the complexity of
-UPS "products" and their groupings into "manifests" as made available
-by the scisoft server.
+The *coups* package provides tools to operate on information about
+UPS "products" and their groupings into "manifests".
 
-*coups* consists of:
+The ~coups~ command can:
 
-- a scisoft manifest downloader
-- a database schema to receive the information
-- various simple and not so simple queries
-- a generator of Dockerfiles and graphs
-- Python modules with a command line interface
+- Download and store a manifest of a bundle of manifests.
+
+- List products or manifests matching given identifiers.
+
+- List products that are in a given manifest.
+
+- List manifests that provide a given package.
+
+- Render graphs showing product/manifest relationships.
+
+- Factor manifests into subsets defined by other manifests.
+
+- Render a script to build containers which are layered by manifest
+  subsets.
 
 * Taxonomy
 
-Before getting in to what ~coups~ can do, some terminology needs
-defining.  The scisoft server provides organized views of UPS package
-information based on two primary taxons:
+*coups* follows the taxonomy expressed by how scisoft server.  It
+consists of two primary taxons:
 
 - product :: identify a UPS package
 
@@ -32,7 +39,7 @@ types of information.
 
 - vunder :: a version in the form ~vX_Y_Z~
 
-- flavor :: a name encoding OS, kernal, libc.
+- flavor :: encode binary (OS, kernel, libc) or source 
 
 - qualifiers :: a set of tags ("quals") defining details of the
   compilation performed to build a product (compiler, profiling vs
@@ -51,34 +58,19 @@ Notes:
   product it names a tar file which holds its contents.  For a
   manifest it names the file containing the list of products.
 
-- There is always a *flavor* but it may be "source" or "NULL".
+- There is always a *flavor* but it may be "source" or "NULL" when
+  referring to either a source distribution or a binary which has no
+  platform distinction (eg, data).
 
-- The set of qualifiers may be empty.
+- The set of qualifiers may be empty and the set is rendered in
+  different order and format depending on usage context.
 
-The content of a manifest gives a list of fully qualified UPS
-"products".  The product filename names a tar file holding the
+The content of a manifest lists fully-qualified UPS "products"
+information.  The product's filename names a tar file holding the
 contents of the UPS product which is also available for download from
 the scisoft server.  A manifest can be used by the [[https://scisoft.fnal.gov/scisoft/bundles/tools/pullProducts][pullProducts]] script
 to install its products from these tar files.  It is then easy enough
 to build a container with this script, given a suitable base OS.
-
-* What can I do with ~coups~?
-
-The ~coups~ command can:
-
-- List products or manifests matching given identifiers.
-
-- List products that are in a manifest.
-
-- List manifests that provide a package.
-
-- Render graphs showing product/manifest relationships.
-
-- Factor manifests into subsets defined by other manifests.
-
-- Render a script to build containers which are layered by manifest
-  subsets.
-
 
 * Examples
 
@@ -88,22 +80,38 @@ quals may instead of the name be a manifest file name.  When given,
 the name, version and flavor are parsed from the filename and if these
 values are also given then they override what the filename provides.
 
-** Download manifests and fill database
+** List bundles
 
-#+begin_example
-❯ coups load-bundle https://scisoft.fnal.gov/scisoft/bundles/larsoft
-....long first time load
-❯ coups load-bundle https://scisoft.fnal.gov/scisoft/bundles/larsoft
-have manifest, not refreshing at:
-https://scisoft.fnal.gov/scisoft/bundles/larsoft/v09_28_04/manifest/larsoft-09.28.04-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt
-#+end_example
-
-** List known bundles
+You can list bundles which are "known" (have at least one manifest in
+the local DB), are online on the scisoft server or are "missing"
+(online but not in DB):
 
 #+begin_example
 ❯ coups bundles
 art artbase artdev canvas_base cmake_base dune geant4 icarus larbase larsoft larsoftobj larwire larwirebase python_tools uboone
+❯ coups bundles --online
+❯ coups bundles --missing
 #+end_example
+
+
+** Download manifests for a bundle and fill database
+
+A bundle of manifests can be downloaded and filled into the local
+database:
+
+#+begin_example
+❯ coups load-bundle larsoft
+....long first time load
+❯ coups load-bundle larsoft
+have manifest, not refreshing at:
+https://scisoft.fnal.gov/scisoft/bundles/larsoft/v09_28_04/manifest/larsoft-09.28.04-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt
+#+end_example
+
+It can take minutes to hours depending on how many manifests are in a
+bundle.  The loading progresses in order of scisoft (decreasing
+version) so killing the process (~Ctrl-c~) after some time is a
+reasonable way to get just the latest.
+
 
 ** Compare two manifests
 
@@ -295,7 +303,7 @@ example, ~canvas_base~ bundle was not loaded, this last factoring would
 not be discovered.  To assure exhaustive factoring, one must scrape
 all available bundles.
 
-** Generate Well Layered Containers
+** Well Tempered Container
 
 The main goal of *coups* is to produce container images which have
 layers that mirror the subset structure implicit in manifests.  We
@@ -309,12 +317,65 @@ and then transfers the command from ~subsets~ to ~container~.
 
 
 #+begin_example
-❯ coups container -o build.sh --builder docker \
+❯ coups container \
+  -o build.sh --builder docker \
   --extras art:5,canvas_base:5 \
   larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt 
 ❯ bash build.sh
+❯ docker image list
+REPOSITORY                     TAG                                         IMAGE ID       CREATED        SIZE
+brettviren/coups-larsoft       09.28.02.01-Linux64bit-3.10-2.17-e20-prof   8ec2d0ccfa41   17 hours ago   20.3GB
+brettviren/coups-larsoftobj    09.07.01.01-Linux64bit-3.10-2.17-e20-prof   c604a195d30b   18 hours ago   8.85GB
+brettviren/coups-larwire       09.02.13.01-Linux64bit-3.10-2.17-e20-prof   4004a5afe3e2   18 hours ago   8.82GB
+brettviren/coups-art           3.09.03-Linux64bit-3.10-2.17-e20-prof       9936deed5753   18 hours ago   7.01GB
+brettviren/coups-canvas_base   3.12.04-Linux64bit-3.10-2.17-e20-prof       a781ca985448   18 hours ago   6.79GB
 ❯ docker run -ti brettviren/coups-larsoft:09.28.02.01-Linux64bit-3.10-2.17-e20-prof
-[root@64c328144753 /]#
+[root@b43dd134d017 /]# du -sh /products
+20G	/products
+[root@b43dd134d017 /]# du -sm /products/* | sort -n | tail
+575	/products/wirecell
+627	/products/g4neutron
+660	/products/grpc
+739	/products/genie_xsec
+783	/products/g4surface
+1085	/products/pythia8
+1088	/products/boost
+1187	/products/larreco
+1271	/products/gcc
+1867	/products/root
+#+end_example
+
+The 20GB ~/products/~ directory can be cut in half by removing
+unnecessary copies of source code and by calling ~strip~ on every shared
+library ~.so~ file.  The space savings comes at a cost of making the
+result somewhat unfriendly to profiling or debugging usages.  And, the
+result is still rather large.
+
+#+begin_example
+❯ coups container \
+  --strip -o build.sh --builder docker \
+  --extras art:5,canvas_base:5 \
+  larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+❯ bash build.sh
+❯ docker image list
+REPOSITORY                     TAG                                               IMAGE ID       CREATED             SIZE
+brettviren/coups-larsoft       09.28.02.01-Linux64bit-3.10-2.17-e20-prof-strip   74cb4e920d89   20 seconds ago      12.4GB
+brettviren/coups-larsoftobj    09.07.01.01-Linux64bit-3.10-2.17-e20-prof-strip   364069bf9ae9   10 minutes ago      5.66GB
+brettviren/coups-larwire       09.02.13.01-Linux64bit-3.10-2.17-e20-prof-strip   3ce5099d9295   11 minutes ago      5.22GB
+brettviren/coups-art           3.09.03-Linux64bit-3.10-2.17-e20-prof-strip       f566626c6b20   13 minutes ago      4.51GB
+brettviren/coups-canvas_base   3.12.04-Linux64bit-3.10-2.17-e20-prof-strip       2bb945d160f7   14 minutes ago      4.15GB
+11G	/products
+[root@523912558a1a /]# du -sm /products/* | sort -n | tail
+355	/products/g4emlow
+456	/products/tensorflow
+470	/products/sphinx
+497	/products/root
+571	/products/g4tendl
+627	/products/g4neutron
+704	/products/pythia8
+739	/products/genie_xsec
+783	/products/g4surface
+1190	/products/gcc
 #+end_example
 
 

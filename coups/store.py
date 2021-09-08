@@ -8,7 +8,8 @@ Interface to database.
 # the terms of the GNU Affero General Public License.
 
 import os
-from sqlalchemy import Table, Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Table, Column, Integer, String, DateTime
+from sqlalchemy import UniqueConstraint, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 from sqlalchemy import create_engine
@@ -16,6 +17,32 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm import relationship
 
 Base = declarative_base()
+
+
+ProductManifest = Table(
+    "product_manifest", Base.metadata,
+    Column('product_id', ForeignKey('product.id'), primary_key=True),
+    Column('manifest_id', ForeignKey('manifest.id'), primary_key=True))
+
+ProductQual = Table(
+    "product_qual", Base.metadata,
+    Column('product_id', ForeignKey('product.id'), primary_key=True),
+    Column('qual_id', ForeignKey('qual.id'), primary_key=True))
+
+ManifestQual = Table(
+    "manifest_qual", Base.metadata,
+    Column('manifest_id', ForeignKey('manifest.id'), primary_key=True),
+    Column('qual_id', ForeignKey('qual.id'), primary_key=True))
+
+ProductDependency = Table(
+    "product_dependency", Base.metadata,
+    Column("id", Integer, primary_key=True),
+    # "parent"
+    Column("require_id", ForeignKey("product.id")),
+    # "child"
+    Column("provide_id", ForeignKey("product.id")),
+    UniqueConstraint('require_id', 'provide_id', name='uniquedep'),
+)
 
 
 class Flavor(Base):
@@ -37,10 +64,10 @@ class Qual(Base):
     name = Column(String, nullable=False, unique=True)
 
     products = relationship("Product",
-                            secondary=lambda: link_product_qual,
+                            secondary=lambda: ProductQual,
                             backref="quals")
     manifests = relationship("Manifest", 
-                            secondary=lambda: link_manifest_qual,
+                            secondary=lambda: ManifestQual,
                             backref="quals")
     def __str__(self):
         return self.name
@@ -91,6 +118,7 @@ def nonbuild_qual(quals):
     ret.append(cq)
     return ret
 
+# fixme: these shoudl be in the database, no?
 # From a recent pullProducts + some sleuthing.
 # see also https://cdcvs.fnal.gov/redmine/projects/cet-is-public/wiki/AboutQualifiers
 platform_flavors = {
@@ -158,8 +186,18 @@ class Product(Base):
     flavor_id = Column(Integer, ForeignKey('flavor.id'))
 
     manifests = relationship("Manifest",
-                             secondary=lambda: link_product_manifest,
+                             secondary=lambda: ProductManifest,
                              backref="products")
+
+    # A many-to-many for product dependencies.  Terminology:
+    # A child depends on a parent.  wirecell (child) depends on boost (parent).
+    # As a child we "require" our parents.  dependency.
+    # As a parent we "provide" (for) our children. reverse dependency.
+    requires = relationship("Product",
+                            secondary=lambda: ProductDependency,
+                            primaryjoin=id == ProductDependency.c.provide_id,
+                            secondaryjoin=id == ProductDependency.c.require_id,
+                            backref="provides")
 
     def __repr__(self):
         quals = ":".join([str(q) for q in self.quals])
@@ -172,7 +210,7 @@ class Product(Base):
             quals += f':{bt}'
         if quals:
             quals = f'-q {quals}'
-        flav = self.flavor
+        flav = str(self.flavor)
         if flav:
             flav = f'-f {flav}'
         return f'{self.name} {self.vunder} {self.filename} {flav} {quals}'
@@ -277,21 +315,6 @@ class Manifest(Base):
         quals.sort()
         return (self.name, self.version, self.flavor, quals)
 
-link_product_manifest = Table(
-    "product_manifest", Base.metadata,
-    Column('product_id', ForeignKey('product.id'), primary_key=True),
-    Column('manifest_id', ForeignKey('manifest.id'), primary_key=True))
-
-link_product_qual = Table(
-    "product_qual", Base.metadata,
-    Column('product_id', ForeignKey('product.id'), primary_key=True),
-    Column('qual_id', ForeignKey('qual.id'), primary_key=True))
-
-link_manifest_qual = Table(
-    "manifest_qual", Base.metadata,
-    Column('manifest_id', ForeignKey('manifest.id'), primary_key=True),
-    Column('qual_id', ForeignKey('qual.id'), primary_key=True))
-
 
 def engine(url):
     'Get db engine'
@@ -305,13 +328,13 @@ def init(url):
     'Initialize coups db'
     Base.metadata.create_all(engine(url))
 
-def session(dbname="coups.db"):
+def session(dbname="coups.db", force=False):
     '''
     Return a DB session
     '''
     if not dbname:
         raise ValueError("no db name given");
-    if not os.path.exists(dbname):
+    if force or not os.path.exists(dbname):
         init(dbname)
     if os.stat(dbname).st_size == 0:
         raise ValueError("db is not initialized")

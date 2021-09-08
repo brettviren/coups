@@ -109,21 +109,6 @@ def remove(ctx, manifest):
         return
     ctx.obj.remove_manifest(man)
 
-
-# @cli.command("sub-manifests")
-# @click.argument("manifest")
-# @click.pass_context
-# def sub_manifests(ctx, manifest):
-#     '''
-#     Print a list of "sub" manifests.
-
-#     A sub manifest is one which fully provides some subset of a given
-#     manifest.
-#     '''
-#     subman = ctx.obj.sub_manifests(manifest)
-#     for one in subman:
-#         print(one.filename)
-
 @cli.command("bundles")
 @click.option("--online/--no-online", default=False,
               help="Check online instead of DB")
@@ -207,49 +192,6 @@ def compare_bundles(ctx, bundle1, bundle2):
     if missing:
         click.echo(f'have {have} {bundle1}, missing {missing} {bundle2}')
 
-# @cli.command("ls")
-# @click.option("-t", "--table", default="manifest",
-#               help="Table to query")
-# @click.option("-v", "--vunder", default=None,
-#               help="A 'vunder' of thing")
-# @click.option("-n", "--name", default=None,
-#               help="Name of thing")
-# @click.pass_context
-# def ls(ctx, table, vunder, name):
-#     '''
-#     List things the store has
-#     '''
-#     Table = getattr(coups.store, table.capitalize())
-#     q = ctx.obj.session.query(Table)
-#     if name:
-#         q = q.filter_by(name = name)
-#     if vunder:
-#         q = q.filter_by(vunder = vunder)
-
-#     click.echo("\n".join([one.filename for one in q.all()]))
-    
-
-# @cli.command("dump-url")
-# @click.argument("url")
-# def dump_url(url):
-#     for one in coups.scrape.table(url):
-#         print(one)
-
-# @cli.command("dump")
-# @click.argument("manifest")
-# def dump(manifest):
-#     from coups.manifest import parse_name, load, parse_body
-#     print(parse_name(manifest))
-#     text = load(manifest)
-#     for one in parse_body(text):
-#         print (one)
-
-# @cli.command("manifest")
-# @click.argument("name")
-# @click.pass_context
-# def dump(ctx, name):
-#     for man in ctx.obj.session.query(coups.store.Manifest).filter_by(name=name).all():
-#         print (man)
 
 @cli.command("container")
 @click.option("-q", "--quals", default="",
@@ -399,7 +341,7 @@ def products(ctx, quals, flavor, version, name):
     '''
     for p in coups.queries.products(ctx.obj.session,
                                     name, version, flavor, quals):
-        print(str(p))
+        print(repr(p))
 
 @cli.command("contains")
 @click.option("-q", "--quals", default=None,
@@ -421,6 +363,8 @@ def contains(ctx, quals, flavor, version, name):
             print('\t'+m.filename)
 
 @cli.command("manifests")
+@click.option("--products/--no-products", default=False,
+              help="Also print products for each manifest")
 @click.option("-q", "--quals", default=None,
               help="Colon-separate list of qualifiers")
 @click.option("-f", "--flavor", default=None,
@@ -429,7 +373,7 @@ def contains(ctx, quals, flavor, version, name):
               help="Set the version")
 @click.argument("name")
 @click.pass_context
-def manifests(ctx, quals, flavor, version, name):
+def manifests(ctx, products, quals, flavor, version, name):
     '''
     List matching manifests
     '''
@@ -437,8 +381,10 @@ def manifests(ctx, quals, flavor, version, name):
     for m in coups.queries.manifests(ctx.obj.session,
                                      name, version, flavor, quals):
         print (m.filename)
+        if not products:
+            continue
         for p in m.products:
-            print('\t'+p.filename)
+            print('\t'+str(p))
 
 @cli.command("subsets")
 @click.option("-q", "--quals", default=None,
@@ -572,6 +518,90 @@ def dotify(ctx, output, quals, flavor, version, type, distance, name):
     plt.figure(figsize=(20,20))
     nx.draw_networkx(g, pos, node_size=10, nodelist=nodes, node_color=colors, labels=labels)
     plt.savefig(output)
+
+
+@cli.command("load-deps")
+@click.argument("dfile")
+@click.pass_context
+def load_deps(ctx, dfile):
+    '''
+    Load dependencies for the top package in a deps files.
+
+    A deps file is as produced via 'ups depend'.
+
+    For a full dependency graph, this must be repeated for every
+    product as 'ups depend' trims its tree.
+    '''
+    text = open(dfile).read()
+    ctx.obj.load_deps_text(text, True)
+
+@cli.command("load-manifest-deps")
+@click.option("--prefix", default="ups depend",
+              help="The command to run to get the 'ups depend' text")
+@click.option("-q", "--quals", default=None,
+              help="Colon-separate list of qualifiers")
+@click.option("-f", "--flavor", default=None,
+              help="Platform flavor")
+@click.option("-v", "--version", default=None,
+              help="Set the version")
+@click.argument("name")
+@click.pass_context
+def load_manifest_deps(ctx, prefix, quals, flavor, version, name):
+    '''
+    Load dependencies for packages listed in a manifest.
+
+    This runs 'ups depend' as given by the --prefix option.
+
+    The prefix may contain a '%s' which will be filled in with
+    'ups depend' arguments.  Else they are appended.
+
+    pro tip:
+    --prefix='singularity exec --bind /cvmfs sl7.sif /bin/bash -c "source /cvmfs/larsoft.opensciencegrid.org/products/setup && ups depend %s"'
+    
+    '''
+    import subprocess
+    name,version,flavor,quals = wash_name(name,version,flavor,quals)
+    mans = coups.queries.manifests(ctx.obj.session,
+                                   name, version, flavor, quals)
+
+    for man in mans:
+        for prod in man.products:
+            quals = [str(q) for q in prod.quals]
+            quals.sort()
+            quals = ":".join(quals) # fixme this should be in Product!
+            if quals:
+                quals = "-q " + quals
+            flav = str(prod.flavor)
+            if flav:
+                flav = "-f " + flav
+            args = f'{prod.name} {prod.vunder} {flav} {quals}'
+            if '%' in prefix:
+                cmd = prefix % (args)
+            else:
+                cmd = prefix + ' ' + args
+            print (cmd)
+            text = subprocess.check_output(cmd, shell=True).decode()
+            ctx.obj.load_deps_text(text, False)
+    ctx.obj.commit()
+
+
+@cli.command("depend-graph")
+@click.argument("dfile")
+@click.pass_context
+def depend_graph(ctx, dfile):
+    '''
+    Parse output of "ups depend <prod> <vunder> -q <quals>"
+    '''
+    from coups import depend
+    import matplotlib.pyplot as plt
+    import networkx as nx
+
+    g = depend.graph(open(dfile).read())
+    plt.figure(figsize=(50,20))
+    pos = nx.nx_agraph.graphviz_layout(g, prog="dot")
+    nx.draw_networkx(g, pos)
+    plt.savefig(dfile + ".png")
+
 
 def main():
     cli(obj=None)

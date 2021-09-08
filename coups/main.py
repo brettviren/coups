@@ -13,15 +13,16 @@ from . import queries, graph
 from coups.scrape import table
 
 class Coups:
-    def __init__(self, store, url):
+    def __init__(self, store, url, force_init=False):
         self.store_file = store
         self.scisoft_url = url
+        self.force_init = force_init
 
     @property
     def session(self):
         ses = getattr(self, '_session', None)
         if ses: return ses
-        self._session = cdb.session(self.store_file)
+        self._session = cdb.session(self.store_file, self.force_init)
         return self._session    
 
 
@@ -92,9 +93,11 @@ class Coups:
             q1 = self.qual(q)
             p1.quals.append(q1)
         self.session.add(p1)
-        
             
     def names(self, what, field="name"):
+        '''
+        Return list of names of manifests or products
+        ''' 
         try:
             Table = getattr(cdb, what.capitalize())
         except AttributeError:
@@ -140,45 +143,6 @@ class Coups:
             qual = self.session.query(cdb.Qual).filter_by(name=qual).one()
             q = q.where(cdb.Manifest.quals.contains(qual))
         return q.all()
-        
-
-    def chain(self, bundle, version, flavor, quals):
-        from coups.manifest import b2b
-
-        if bundle not in b2b:
-            return []
-
-        if "bundle" in b2b[bundle]:
-            print("swap", bundle, b2b[bundle]["bundle"])
-            bundle = b2b[bundle]["bundle"]
-
-        mans = self.find_manifests(name=bundle, vunder=version, quals=quals, flavor=flavor)
-        if len(mans) != 1:
-            print(f'No unique manifest, found: {len(mans)} for {bundle} {version} {flavor} {quals}')
-            for m in mans:
-                print(m)
-            return []
-        man = mans[0]
-
-        if bundle not in b2b:
-            return mans
-        todo = b2b[bundle]
-        for subbun in todo.get("has", []):
-            print (f'has: {subbun}')
-            prod = [p for p in man.products if p.name == subbun]
-            if len(prod) != 1:
-                print(f'No unique product found for {subbun}: {len(prod)}')
-                print(man.products)
-                return []
-            prod = prod[0]
-            version = prod.vunder
-            if version.startswith("v"):
-                version = version[1:].replace("_",".")
-            mans += self.chain(prod.name, version, prod.flavor, prod.quals)
-        for subbun in todo.get("ver", []):
-            print (f'ver: {subbun}')
-            mans += self.chain(subbun, version, flavor, quals)
-        return mans
 
 
     def load_bundle(self, bundle, refresh=False, newer=None, versions=()):
@@ -230,32 +194,42 @@ class Coups:
             self.product(one, man)
         self.session.commit()
 
-    def sub_manifests(self, man, recur = True, seen=None):
-        if not man:
-            return []
-        if isinstance(man, str):
-            man = self.has_manifest(man)
-        comp = man.pp_compiler
-        bld = man.pp_build
-        ret = list()
-        if seen is None:
-            seen = set()
-        for prod in man.products:
-            if prod.id in seen:
-                continue
-            seen.add(prod.id)
-            q = self.session.query(cdb.Manifest).filter_by(name = prod.name)
-            q = q.filter_by(vunder = prod.version)
-            q = q.filter_by(flavor = prod.flavor)
-            for one in q.all():
-                if one.pp_compiler != comp:
+    def load_dependencies(self, child, parents, commit=True):
+        '''
+        Load product dependencies to DB from objects.
+
+        A child depends on its parents.  
+        Eg, wirecell (child) depends on boost (parent).
+        '''
+        child.requires = set(child.requires + parents)
+        if commit:
+            self.session.commit()
+
+    def load_deps_text(self, text, commit=True):
+        '''
+        Parse text from 'ups depend' and load dependencies for first
+        product.
+        '''
+        from coups import depend
+        from coups.queries import products
+        entries = depend.parse(text)
+        top = entries[0]
+        child = products(self.session, top.name, top.vunder, top.flavor, top.quals)
+        if not child:
+            raise ValueError(f"No unique product: {top[:-1]}")            
+        child = child[0]
+
+        for ent in entries[1:]:
+            if ent.name in top.parents:
+                parent = products(self.session, ent.name, ent.vunder, ent.flavor, ent.quals)
+                if not parent:
+                    raise ValueError(f"No unique product: {ent[:-1]}")
+                parent = parent[0]
+                if parent in child.provides:
                     continue
-                if one.pp_build != bld:
-                    continue
-                ret.append(one)
-                if recur:
-                    ret += self.sub_manifests(one, True, seen)
-        return ret
+                child.provides.append(parent)
+        if commit:
+            self.session.commit()
         
 
     def commit(self, *objs):

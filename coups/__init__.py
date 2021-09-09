@@ -7,8 +7,8 @@ The coups module.
 # This file is part of coups which is free software distributed under
 # the terms of the GNU Affero General Public License.
 
-from coups.main import Coups
-from . import store, scrape, manifest, queries, util
+# from coups.main import Coups
+# from . import store, scrape, manifest, queries, util
 
 
 

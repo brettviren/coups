@@ -52,14 +52,14 @@ def find_bundles(man, other_mans):
         #print (f'no match: ({mine},{both},{yours}) {other}')
     return ret
 
-def qualified(ses, Type, name, vunder=None, flavor=None, quals=None):
+def qualified(ses, Type, name, version=None, flavor=None, quals=None):
     '''
     Return matching records of Type (manifest or products).
     '''
     p = ses.query(Type)
     p = p.filter(Type.name==name)
-    if vunder:
-        p = p.filter(Type.vunder==vunder)
+    if version:
+        p = p.filter(Type.version==version)
     if flavor:
         p = p.filter(Type.flavor.has(Flavor.name==flavor))
     if quals:
@@ -71,12 +71,20 @@ def qualified(ses, Type, name, vunder=None, flavor=None, quals=None):
             p = p.filter(qt.name == qual)
     return p.all()
 
-def products(ses, name, vunder=None, flavor=None, quals=None):
+def products(ses, name, version=None, flavor=None, quals=None):
     '''
     Return matching products.
     '''
-    vunder = vunderify(vunder)
-    return qualified(ses, Product, name, vunder, flavor, quals)
+    return qualified(ses, Product, name, version, flavor, quals)
+
+def manifest(ses, mtp):
+    '''
+    Return manifest matching the given Manifest tuple or None
+    '''
+    got = qualified(ses, Manifest, mtp.name, mtp.version, mtp.flavor, mtp.quals)
+    if got:
+        return got[0]
+    return None
 
 def manifests(ses, name, version=None, flavor=None, quals=None):
     '''
@@ -86,4 +94,3 @@ def manifests(ses, name, version=None, flavor=None, quals=None):
     return qualified(ses, Manifest, name, version, flavor, quals)
 
 
-    

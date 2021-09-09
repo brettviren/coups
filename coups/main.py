@@ -8,11 +8,11 @@ A main object used by CLI or embedded into some larger context.
 # the terms of the GNU Affero General Public License.
 
 import os
-from . import store as cdb
 from . import queries, graph
-from coups.scrape import table
+from coups.store import *
 
 class Coups:
+
     def __init__(self, store, url, force_init=False):
         self.store_file = store
         self.scisoft_url = url
@@ -22,18 +22,74 @@ class Coups:
     def session(self):
         ses = getattr(self, '_session', None)
         if ses: return ses
-        self._session = cdb.session(self.store_file, self.force_init)
+        self._session = session(self.store_file, self.force_init)
         return self._session    
+
+
+    def query(self, Type, flavor=None, quals=None, **kwds):
+        '''
+        Return a simple query on Type in (Manifest, Product)
+        '''
+        q = self.session.query(Type).filter_by(**kwds)
+        if flavor:
+            q = q.filter(Type.flavor.has(Flavor.name==flavor))
+        if quals:
+            if isinstance(quals, str):
+                quals = quals.split(":")
+            for qual in quals:
+                qt = aliased(Qual)
+                q = q.join(Type.quals.of_type(qt))
+                q = q.filter(qt.name == qual)
+        return q
+
+    def qfirst(self, Type, **kwds):
+        '''
+        Perform query and return first
+        '''
+        return self.query(Type, **kwds).first()
+
+    def qall(self, Type, **kwds):
+        '''
+        Perform query and return all
+        '''
+        return self.query(Type, **kwds).all()
+
+    
+    def lookup(self, Type, flavor=None, quals=None, **kwds):
+        '''
+        Return object of Type.
+
+        If kwds resolve a query for object, return first match, else
+        create, load and return a new one.
+        '''
+        obj = self.qfirst(Type, **kwds)
+        if obj:
+            return obj
+        obj = Type(**kwds)
+        self.session.add(obj)
+        if flavor:
+            obj.flavor = self.lookup(Flavor, name=flavor)
+        if quals:
+            if isinstance(quals, str):
+                quals = quals.split(":")
+            for qual in quals:
+                obj.quals.append(self.lookup(Qual, name=qual))
+        return obj
 
 
     def qual(self, name):
         '''
         Return a qual object of name, making it if needed.
         '''
-        q1 = self.session.query(cdb.Qual).filter_by(name = name).first()
+        if name is None:
+            raise ValueError("qualifier of None is illegal")
+        if not name:
+            raise ValueError("empty qualifier is illegal")
+
+        q1 = self.session.query(Qual).filter_by(name = name).all()
         if q1:
-            return q1
-        q1 = cdb.Qual(name=name)
+            return q1[0]
+        q1 = Qual(name=name)
         self.session.add(q1)
         return q1
 
@@ -41,157 +97,90 @@ class Coups:
         '''
         Return a flavor object of name, making it if needed.
         '''
-        f1 = self.session.query(cdb.Flavor).filter_by(name = name).first()
+        f1 = self.session.query(Flavor).filter_by(name = name).first()
         if f1:
             return f1
-        f1 = cdb.Flavor(name=name)
+        f1 = Flavor(name=name)
         self.session.add(f1)
         return f1
 
-    def manifest(self, entry, return_existing=False):
+    def manifest(self, mtp, return_existing=False):
         '''
-        Return a flavor manifest object, making it if needed.
+        Return a manifest object, making it if needed.
+
+        The mtp is a manifest.Manifest tuple object.
 
         If return_existing is true, return a pair (manifest, bool) with
         second value true if the manifest was already existing.
         '''
-        from coups.manifest import parse_name
-
-        m1 = self.session.query(cdb.Manifest).filter_by(filename = entry.filename).first()
+        m1 = queries.manifest(self.session, mtp)
         if (m1):
             if return_existing:
                 return (m1, True)
             return m1
 
-        m1 = cdb.Manifest(name=entry.name, vunder=entry.vunder, filename=entry.filename)
-        f1 = self.flavor(entry.flavor)
-        m1.flavor = f1
-        for q in entry.quals.split(":"):
-            q1 = self.qual(q)
-            m1.quals.append(q1)
+        quals = list()
+        if mtp.quals:
+            for q in mtp.quals.split(":"):
+                quals.append(self.qual(q))
+
+        flavor = self.flavor(mtp.flavor)
+        m1 = Manifest(name=mtp.name, version=mtp.version,
+                      flavor=flavor, quals=quals,
+                      filename=mtp.filename)
         self.session.add(m1)
         if return_existing:
             return (m1, False)
         return m1
 
-    def product(self, entry, manent=None):
+    def product(self, ptp):
         '''
-        Return a product, creating it if needed, attaching it to manifest if given.
+        Return a product, given a manifest.Product tuple.
+
+        If it is not yet in the DB, it will be added.
         '''
-        p1 = self.session.query(cdb.Product).filter_by(filename = entry.filename).first()
-        if p1:
-            if manent in p1.manifests:
-                return p1
-            p1.manifests.append(manent)
-            return p1
-        p1 = cdb.Product(name=entry.name, vunder=entry.vunder, filename=entry.filename)
-        if manent:
-            p1.manifests.append(manent)
-        f1 = self.flavor(entry.flavor)
-        p1.flavor = f1
-        for q in entry.quals.split(":"):
-            q1 = self.qual(q)
-            p1.quals.append(q1)
-        self.session.add(p1)
+        pobj = self.session.query(Product).filter_by(filename = ptp.filename).first()
+        if pobj:
+            return pobj
+
+        pobj = Product(name=ptp.name, version=ptp.version, filename=ptp.filename)
+        pobj.flavor = self.flavor(ptp.flavor)
+        # print(f'product quals |{ptp.quals}|')
+        if ptp.quals:
+            for q in ptp.quals.split(":"):
+                q1 = self.qual(q)
+                pobj.quals.append(q1)
+        self.session.add(pobj)
+        return pobj
             
     def names(self, what, field="name"):
         '''
         Return list of names of manifests or products
         ''' 
+        import coups.store
         try:
-            Table = getattr(cdb, what.capitalize())
+            Table = getattr(coups.store, what.capitalize())
         except AttributeError:
             return ()
         ret = list(set([getattr(one, field) for one in self.session.query(Table).all()]))
         ret.sort()
         return ret
 
-    def has_manifest(self, uri):
+    def has_manifest(self, mf):
         '''
-        Return true (the db object) if this manifest is in the db, else None
+        Return true (the db object) if this manifest is in the db, else None.
+
+        The manifest should be a manifest.Manifest tuple.
         '''
-        from coups.manifest import parse_name
-        entry = parse_name(uri)
-        return self.session.query(cdb.Manifest).filter_by(filename = entry.filename).first()
+        if not isinstance(mf, str):
+            mf = mf.filename
+        return self.session.query(Manifest).filter_by(filename = mf).first()
 
     def remove_manifest(self, man):
         '''
         Remove the manifest object from the DB.
         '''
         self.session.delete(man)
-        self.session.commit()        
-
-    def find_manifests(self, name=None, vunder=None, quals=None, flavor=None, filename=None):
-        q = self.session.query(cdb.Manifest)
-        if name:
-            q = q.filter_by(name = name)
-        if vunder:
-            # fixme: really we have version, not vunder
-            # if vunder[0] != "v":
-            #     vunder = "v" + vunder.replace(".","_")
-            q = q.filter_by(vunder = vunder)
-        if flavor:
-            q = q.where(cdb.Manifest.flavor.has(cdb.Flavor.name==str(flavor)))
-        if filename:
-            q = q.filter_by(filename = filename)
-        if not quals:
-            return q.all()
-        if isinstance(quals, str):
-            quals = quals.split(":")
-        quals = [str(q) for q in quals] # maybe Qual objects 
-        for qual in quals:
-            qual = self.session.query(cdb.Qual).filter_by(name=qual).one()
-            q = q.where(cdb.Manifest.quals.contains(qual))
-        return q.all()
-
-
-    def load_bundle(self, bundle, refresh=False, newer=None, versions=()):
-        '''
-        Scrape scisoft for info about the bundle and load it into the DB.
-
-        If refresh is true, then load a manifest even if we already have it.
-        If newer is given, stop the scrape once we hit an older vunder.
-        If versions is given, only consider matching vunders.
-        '''
-        bundle_url = os.path.join(self.scisoft_url, "bundles", bundle)
-        for verurl in table(bundle_url):
-            vunder = verurl.split("/")[-1]
-
-            if newer and vunder < newer:
-                print(f'reach old {verurl} < {newer}')
-                break
-
-            if versions and vunder not in versions:
-                # print(f'skip {vunder}')
-                continue
-
-            try:
-                for one in table(os.path.join(verurl, "manifest")):
-                    if not refresh:
-                        have = self.has_manifest(one)
-                        if have:
-                            #print(f'have manifest, not refreshing at:\n{one}')
-                            return
-
-                    print (f'loading: {one}')
-                    self.load_manifest(one)
-            except ValueError as err:
-                print(err)
-                print("continuing...")
-                continue
-
-    def load_manifest(self, uri, force=False):
-        '''
-        Load one new manifest from file or url.
-        '''
-        from coups.manifest import load, parse_body, parse_name
-        man = parse_name(uri)
-        man, already = self.manifest(man, True)
-        if already and not force:
-            return
-        text = load(uri)
-        for one in parse_body(text):
-            self.product(one, man)
         self.session.commit()
 
     def load_dependencies(self, child, parents, commit=True):

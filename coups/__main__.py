@@ -13,8 +13,9 @@ import sys
 import click
 from collections import namedtuple
 
-import coups
-from coups.manifest import wash_name
+import coups.manifest
+import coups.scisoft
+from coups.util import versionify
 
 @click.group()
 @click.option('--url',
@@ -36,78 +37,9 @@ def cli(ctx, url, store):
     absolutely no warranty.  License information and source code is
     available at https://github.com/brettviren/coups
     '''
+    import coups.main
+    ctx.obj = coups.main.Coups(store, url)
 
-    ctx.obj = coups.Coups(store, url)
-
-
-@cli.command("load-manifest")
-@click.argument("manifest")
-@click.pass_context
-def load_manifest(ctx, manifest):
-    '''
-    Load a manifest (file or URL) into db
-    '''
-    from coups.manifest import parse_name
-    from coups.util import vunderify
-
-    if os.path.exists(manifest) or "://" in manifest:
-        ctx.obj.load_manifest(manifest, force=True)
-        return
-    entry = parse_name(manifest)
-
-    url = os.path.join(ctx.obj.scisoft_url, "bundles", entry.name, vunderify(entry.vunder), "manifest", manifest)
-    print(url)
-    ctx.obj.load_manifest(url, force=True)    
-    
-
-
-@cli.command("load-bundle")
-@click.option("--refresh/--no-refresh", default=False,
-              help="If refresh, then will re-read existing")
-@click.option("--newer", default=None,
-              help="Only load those with vunders lexically greater or equal than")
-@click.option("--versions", default="",
-              help="Comma-separated list of versions to consider")
-@click.argument("bundle")
-@click.pass_context
-def load_bundle(ctx, refresh, newer, versions, bundle):
-    '''
-    Load a bundle of manifests (name, manifest file or URL) into db.
-
-    If a manifest file is given, load unconditionally.
-
-    Otherwise, if a bundle name or an unqualifed URL is given, scisoft
-    will be scraped and the "newer" and "refresh" options apply.
-    '''
-    if "_MANIFEST.txt" in bundle:
-        ctx.obj.load_manifest(one, True)
-        return
-
-    versions = set([v for v in versions.split(',') if v])
-    ctx.obj.load_bundle(bundle, refresh, newer, versions)
-
-@cli.command("update")
-@click.pass_context
-def update(ctx):
-    '''
-    Load any new bundles from list of already known bundles.
-    '''
-    for bundle in ctx.obj.names("manifest"):
-        ctx.obj.load_bundle(bundle)
-        
-
-@cli.command("remove")
-@click.argument("manifest")
-@click.pass_context
-def remove(ctx, manifest):
-    '''
-    Remove a manifest of the given filename.
-    '''
-
-    man = ctx.obj.has_manifest(manifest)
-    if not man:
-        return
-    ctx.obj.remove_manifest(man)
 
 @cli.command("bundles")
 @click.option("--online/--no-online", default=False,
@@ -119,11 +51,8 @@ def bundles(ctx, online, missing):
     '''
     List known bundles
     '''
-    from coups.scrape import table
     if online or missing:
-        url = "https://scisoft.fnal.gov/scisoft/bundles"
-        there = set([oneurl.split("/")[-1] for oneurl in table(url)])
-
+        there = set(list(coups.scisoft.bundles(False)))
 
     if not online or missing:
         here = set(ctx.obj.names("manifest"))
@@ -137,7 +66,151 @@ def bundles(ctx, online, missing):
     show = list(show)
     show.sort()
     print(' '.join(show))
-        
+
+
+@cli.command("get-manifest")
+@click.option("-o", "--output", default="-",
+              help="Output file name")
+@click.option("-q", "--quals", default=None,
+              help="Colon-separate list of qualifiers")
+@click.option("-f", "--flavor", default=None,
+              help="Platform flavor")
+@click.option("-v", "--version", default=None,
+              help="Version")
+@click.argument("name")
+@click.pass_context
+def get_manifest(ctx, output, quals, flavor, version, name):
+    '''
+    Get and parse a manifest and dump it back out.
+
+    Name can be a bundle or a manifest file name or url.
+
+    Result can be better formed than input or the whole mess can fail
+    if input is really in bad shape.
+    '''
+    import coups.manifest
+    import coups.render
+
+    if output == "-":
+        output="/dev/stdout"
+
+    mtp = coups.manifest.make(name, version, flavor, quals)
+    prods = coups.manifest.load(mtp)
+
+    with open(output, "w") as fp:
+        fp.write("# " + str(mtp) + "\n")
+        for prod in prods:
+            fp.write(coups.render.manifest_line(prod) + "\n")
+
+
+def load_one_manifest(main, mtp, refresh):
+    from coups.store import Manifest, Product
+
+    mobj = main.qfirst(Manifest, **mtp._asdict())
+
+    if mobj and not refresh:
+        click.echo(f'have {mobj}')
+        return False
+
+    if mobj:
+        mobj.products.clear() # correct?
+    else:
+        mobj = main.lookup(Manifest, **mtp._asdict())
+                
+    for ptp in coups.manifest.load(mtp):
+        pobj = main.lookup(Product, **ptp._asdict())
+        mobj.products.append(pobj)
+    main.commit(mobj)
+    click.echo(f'load {mobj}')    
+    return True
+
+@cli.command("load-manifest")
+@click.option("--refresh/--no-refresh", default=False,
+              help="If refresh, then will re-read existing")
+@click.option("-q", "--quals", default=None,
+              help="Colon-separate list of qualifiers")
+@click.option("-f", "--flavor", default=None,
+              help="Platform flavor")
+@click.option("-v", "--version", default=None,
+              help="Version")
+@click.argument("name")
+@click.pass_context
+def load_manifest(ctx, refresh, quals, flavor, version, name):
+    '''
+    Load a manifest (file or URL) into db
+
+    Name can be a bundle or a manifest file name or url.
+    '''
+    mtp = coups.manifest.make(name, version, flavor, quals)
+    load_one_manifest(ctx.obj, mtp, refresh)
+
+
+def load_one_bundle(main, bundle, versions=(), newer=None, refresh=False):
+    for ver in coups.scisoft.bundle_versions(bundle, full=False):
+
+        if versions and ver not in versions:
+            continue
+
+        if newer and ver < newer:
+            print(f'reach old {ver} < {newer}')
+            break
+
+        try:
+            for mfname in coups.scisoft.bundle_manifests(bundle, ver, False):
+                mtp = coups.manifest.parse_filename(mfname)
+                loaded = load_one_manifest(main, mtp, refresh)
+                if not refresh and not loaded:
+                    return
+        except ValueError as err:
+            click.echo(f"broken bundle: {bundle} {ver}")
+            click.echo(err)
+            continue
+
+
+@cli.command("load-bundle")
+@click.option("--refresh/--no-refresh", default=False,
+              help="If refresh, then will re-read existing")
+@click.option("--newer", default=None,
+              help="Only load those with versions lexically greater or equal than")
+@click.option("--versions", default=None,
+              help="Comma-separated list of versions to consider")
+@click.argument("bundle")
+@click.pass_context
+def load_bundle(ctx, refresh, newer, versions, bundle):
+    '''
+    Load a bundle of manifests into DB.
+
+    Otherwise, if a bundle name or an unqualifed URL is given, scisoft
+    will be scraped and the "newer" and "refresh" options apply.
+    '''
+    if versions:
+        versions = set([v for v in versions.split(',') if v])
+    load_one_bundle(ctx.obj, bundle, versions, newer, refresh)
+
+
+@cli.command("update")
+@click.pass_context
+def update(ctx):
+    '''
+    Load any new manifests from known bundles.
+    '''
+    for bundle in ctx.obj.names("manifest"):
+        load_one_bundle(ctx.obj, bundle)
+
+
+@cli.command("remove")
+@click.argument("manifests", nargs=-1)
+@click.pass_context
+def remove(ctx, manifests):
+    '''
+    Remove a manifest of the given filename.
+    '''
+    for manifest in manifests:
+        man = ctx.obj.has_manifest(manifest)
+        if not man:
+            continue
+        ctx.obj.remove_manifest(man)
+
         
 @cli.command("compare")
 @click.argument("manifest1")
@@ -145,8 +218,11 @@ def bundles(ctx, online, missing):
 @click.pass_context
 def compare(ctx, manifest1, manifest2):
     '''
-    Compare two manifests
+    Compare the set of products of two manifests
     '''
+    if manifest1 == manifest2:
+        return
+
     man1 = ctx.obj.has_manifest(manifest1)
     man2 = ctx.obj.has_manifest(manifest2)
 
@@ -168,6 +244,7 @@ def compare(ctx, manifest1, manifest2):
     click.echo(f'only {manifest2}:')
     for one in sorted(in2, key=lambda x: x.name):
         click.echo(f'\t{one.filename}')
+
 
 @cli.command("compare-bundles")
 @click.argument("bundle1")
@@ -194,7 +271,7 @@ def compare_bundles(ctx, bundle1, bundle2):
 
 
 @cli.command("container")
-@click.option("-q", "--quals", default="",
+@click.option("-q", "--quals", default=None,
               help="Colon-separate list of qualifiers")
 @click.option("-f", "--flavor", default=None,
               help="Platform flavor")
@@ -226,17 +303,14 @@ def container(ctx, quals, flavor, version, subsets, number, builder, basename, s
     optional.
     '''
 
+    raise RuntimeError("wip: move this to render")
+
+    from coups.store import Manifest
+
     subsets = set([s for s in subsets.split(",") if s])
 
-    name,version,flavor,quals = wash_name(name,version,flavor,quals)
-
-    mans = coups.queries.manifests(ctx.obj.session,
-                                   name, version, flavor, quals)
-    if len(mans) != 1:
-        click.echo(f'No unique manifest, found {len(mans)}')
-        return -1
-
-    man = mans[0]
+    mtp = coups.manifest.make(name, version, flavor, quals)
+    man = ctx.obj.qfirst(Manifest, **mtp._asdict())
     submans = coups.queries.subsets(ctx.obj.session, man, number)
 
     if extras:
@@ -249,10 +323,13 @@ def container(ctx, quals, flavor, version, subsets, number, builder, basename, s
     submans = coups.manifest.sort_submans(man, submans)
     
     if subsets:
-        subsets.add(name)
+        subsets.add(mtp.name)
         # click.echo(f'restricting to sub-manifests: {subsets}')
         keep=list()
         for sm in submans:
+            l,m,r = coups.manifest.cmp_objects(man, sm)
+            if len(m) == 0:
+                continue
             if sm.name in subsets:
                 keep.append(sm)
         submans = keep
@@ -363,8 +440,9 @@ def contains(ctx, quals, flavor, version, name):
             print('\t'+m.filename)
 
 @cli.command("manifests")
-@click.option("--products/--no-products", default=False,
-              help="Also print products for each manifest")
+@click.option("--products", default="",
+              type=click.Choice(["", "manifest_line", "string", "representation"]),
+              help="If products are to be printed, this sets the rendering function")
 @click.option("-q", "--quals", default=None,
               help="Colon-separate list of qualifiers")
 @click.option("-f", "--flavor", default=None,
@@ -377,14 +455,28 @@ def manifests(ctx, products, quals, flavor, version, name):
     '''
     List matching manifests
     '''
+    import coups.render
+    from coups.manifest import wash_name
+    from coups.store import Manifest
+
     name,version,flavor,quals = wash_name(name,version,flavor,quals)
-    for m in coups.queries.manifests(ctx.obj.session,
-                                     name, version, flavor, quals):
-        print (m.filename)
+    kwds=dict(name=name)
+    if version:
+        kwds["version"] = versionify(version)
+    if flavor:
+        kwds["flavor"] = flavor
+    if quals:
+        kwds["quals"] = quals
+    mans = ctx.obj.qall(Manifest, **kwds)
+
+    for man in mans:
+        print (man.filename)
         if not products:
             continue
-        for p in m.products:
-            print('\t'+str(p))
+        render = getattr(coups.render, products)
+        for prod in man.products:
+            print('\t'+render(prod))
+
 
 @cli.command("subsets")
 @click.option("-q", "--quals", default=None,
@@ -403,10 +495,19 @@ def subsets(ctx, quals, flavor, version, name, number, extras):
     '''
     Output subset manifest of matching manifests
     '''
-    name,version,flavor,quals = wash_name(name,version,flavor,quals)
+    from coups.manifest import wash_name
+    from coups.store import Manifest
 
-    mans = coups.queries.manifests(ctx.obj.session,
-                                   name, version, flavor, quals)
+    name,version,flavor,quals = wash_name(name,version,flavor,quals)
+    kwds=dict(name=name)
+    if version:
+        kwds["version"] = versionify(version)
+    if flavor:
+        kwds["flavor"] = flavor
+    if quals:
+        kwds["quals"] = quals
+    mans = ctx.obj.qall(Manifest, **kwds)
+
     for man in mans:
         print(man.filename)
 
@@ -423,9 +524,16 @@ def subsets(ctx, quals, flavor, version, name, number, extras):
 
         for sm in submans:
             l,m,r = coups.manifest.cmp_objects(man, sm)
+            if len(m) == 0:
+                continue
             report = '\t' + sm.filename
-            if r:
-                report += '\n\t+ ' + ', '.join([p.name for p in r])
+
+            common = len(m)
+            adds = len(r)
+            report += '\n\t\t'
+            report += f'common:{common} adds:{adds}'
+            if len(r):
+                report += ' = ' + ', '.join([p.name for p in r])
             print(report)
 
 

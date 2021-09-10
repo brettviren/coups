@@ -8,7 +8,7 @@ UPS "products" and their groupings into "manifests".
 
 The ~coups~ command can:
 
-- Download and store a manifest of a bundle of manifests.
+- Download and store a manifest or a bundle of manifests to a local DB.
 
 - List products or manifests matching given identifiers.
 
@@ -16,12 +16,15 @@ The ~coups~ command can:
 
 - List manifests that provide a given package.
 
-- Render graphs showing product/manifest relationships.
-
 - Factor manifests into subsets defined by other manifests.
 
-- Render a script to build containers which are layered by manifest
-  subsets.
+- Discover inter-product dependencies and build a dependency tree
+  and from this generate manifests.
+
+- Render files and scripts to automate building of containers which
+  are layered according to manifest subsets.
+
+- Render graphs showing product/manifest relationships.
 
 * Taxonomy
 
@@ -52,7 +55,8 @@ Notes:
 
 - The *vunder* takes canonical form in some contexts and in others it
   takes the form ~X.Y.Z~.  This second form is called (in *coops*) a
-  *version*.
+  *version*.  All version strings are versions, not vunders inside
+  coups.
 
 - Both *product* and *manifest* have an associated *filename*.  For a
   product it names a tar file which holds its contents.  For a
@@ -79,6 +83,9 @@ description of a manifest in terms of its name, version, flavor and
 quals may instead of the name be a manifest file name.  When given,
 the name, version and flavor are parsed from the filename and if these
 values are also given then they override what the filename provides.
+
+N.B. some of the following examples may not be 100% in sync with the
+code.
 
 ** List bundles
 
@@ -149,54 +156,54 @@ in their name, and show a trio of set-differences:
 ** Explore what products exist
 
 #+begin_example
-❯ coups products -v v0_16_0a  wirecell
-wirecell v0_16_0a wirecell-0.16.0a-sl7-x86_64-c7-debug.tar.bz2 -f Linux64bit+3.10-2.17 -q c7:debug
-wirecell v0_16_0a wirecell-0.16.0a-sl7-x86_64-c7-prof.tar.bz2 -f Linux64bit+3.10-2.17 -q c7:prof
-wirecell v0_16_0a wirecell-0.16.0a-sl7-x86_64-e20-debug.tar.bz2 -f Linux64bit+3.10-2.17 -q e20:debug
-wirecell v0_16_0a wirecell-0.16.0a-sl7-x86_64-e20-prof.tar.bz2 -f Linux64bit+3.10-2.17 -q e20:prof
+❯ coups products -v v0.16.0a  wirecell
+<Product(1779,wirecell,0.16.0a,Linux64bit+3.10-2.17,c7:debug,wirecell-0.16.0a-sl7-x86_64-c7-debug.tar.bz2)>
+<Product(1858,wirecell,0.16.0a,Linux64bit+3.10-2.17,c7:prof,wirecell-0.16.0a-sl7-x86_64-c7-prof.tar.bz2)>
+<Product(1934,wirecell,0.16.0a,Linux64bit+3.10-2.17,debug:e20,wirecell-0.16.0a-sl7-x86_64-e20-debug.tar.bz2)>
+<Product(2002,wirecell,0.16.0a,Linux64bit+3.10-2.17,e20:prof,wirecell-0.16.0a-sl7-x86_64-e20-prof.tar.bz2)>
 #+end_example
 
 ** Explore what manifests provide products
 
 #+begin_example
-❯ coups contains -v v0_16_0a  wirecell
+❯ coups contains -v 0.16.0a  wirecell
 wirecell-0.16.0a-sl7-x86_64-c7-debug.tar.bz2
 	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt
 	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt
-	larbase-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt
 wirecell-0.16.0a-sl7-x86_64-c7-prof.tar.bz2
 	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-prof_MANIFEST.txt
 	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-c7-prof_MANIFEST.txt
-	larbase-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-prof_MANIFEST.txt
 wirecell-0.16.0a-sl7-x86_64-e20-debug.tar.bz2
 	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-debug_MANIFEST.txt
 	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-e20-debug_MANIFEST.txt
-	larbase-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-debug_MANIFEST.txt
 wirecell-0.16.0a-sl7-x86_64-e20-prof.tar.bz2
 	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
 	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
-	larbase-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
 #+end_example
 
-** Explore what manifests exist
+** Explore what manifests exists
 
 #+begin_example
-❯ coups manifest larsoft -v 09.28.04 
-larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
-larsoft-09.28.04-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt
-larsoft-09.28.04-Linux64bit+3.10-2.17-s110-c7-prof_MANIFEST.txt
-larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-debug_MANIFEST.txt
-
-❯ coups manifests larsoft -v 09.28.04
-larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
-	ups-6.0.8-Linux64bit+3.10-2.17.tar.bz2
-	...
-larsoft-09.28.04-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt
-	ups-6.0.8-Linux64bit+3.10-2.17.tar.bz2        
-	...
+❯ coups manifests larwire
+❯ coups manifests larwire -v 09.02.13
+larwire-09.02.13-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt
+larwire-09.02.13-Linux64bit+3.10-2.17-s110-c7-prof_MANIFEST.txt
+larwire-09.02.13-Linux64bit+3.10-2.17-s110-e20-debug_MANIFEST.txt
+larwire-09.02.13-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+❯ coups manifests larwire -q s112
+larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt
+larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-c7-prof_MANIFEST.txt
 ...
 #+end_example
 
+** Dump a manifest back to file
+
+#+begin_example
+❯ coups manifest  dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+writing dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+❯ coups manifest  dune -v 09.28.04 -f Linux64bit+3.10-2.17 -q e20:prof
+writing dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+#+end_example
 
 ** Find subset manifests
 
@@ -215,8 +222,11 @@ manifest filename, into strict subsets.
 ❯ coups subsets larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
 larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
 	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+		common:71 adds:0
 	larsoftobj-09.07.01.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+		common:76 adds:0
 	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+		common:169 adds:0
 #+end_example
 
 *** Near subsets
@@ -228,11 +238,12 @@ manifest.
 #+begin_example
 ❯ coups subsets -n1 larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
 larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
-	geant4-4.10.3-Linux64bit+3.19-2.19-e12-qt-debug_MANIFEST.txt
-	+ ups
-	larsoft-0.02.00-Linux64bit+2.6-2.12-debug_MANIFEST.txt
-	+ ups
-	...
+	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+		common:71 adds:0
+	larsoftobj-09.07.01.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+		common:76 adds:0
+	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+		common:169 adds:0
 #+end_example
 
 *** Extra subsets
@@ -246,55 +257,62 @@ found that enlarge the product pool in unwanted ways
 # don't want this
 ❯ coups subsets -n5 larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
         ...
-	icarus-09.22.03.01-Linux64bit+3.10-2.17-e20-debug_MANIFEST.txt
-	+ icaruscode, icarus_signal_processing, icarusutil, icarus_data, icarusalg
+	libtorch-1.6.0b-Linux64bit+3.10-2.17-e19-prof_MANIFEST.txt
+		common:1 adds:5 = gcc, protobuf, openblas, libtorch, cmake
         ...
 	art-3.09.03-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
-	+ cmake, cmake, cmake, cmake, sphinx
+		common:46 adds:5 = cmake, cmake, cmake, cmake, sphinx
         ...
 #+end_example
 
-Here we find ~art~ is a "distant near" subset.  We may decide it's many
-versions of ~cmake~ and the one ~sphinx~ which it adds beyond the manifest
-we target is perhaps acceptable compromise to gain the benefit of
-letting this layer be exposed as its own container (so users wanting
-~art~ but not ~larsoft~ may access it.
+Here we find ~art~ is a "distant near" subset but weirdly adding many
+~cmake~ products and ~sphinx~.  We may decide they are worth accepting
+in order to make a general ~art~ layer that can be used by others.
 
-However, we also find many other manifests that are near subsets at
-the same distance but which add substantially large products which we
-know from understanding the larger ecosystem.  
+However, we also find many other manifests that are technically near
+subsets at the same distance but which add substantially large
+products which we don't want such as the ~libtorch~ manifests.
 
 We can give ~coups~ this extra information to guide the factoring:
 
 #+begin_example
 ❯ coups subsets --extras art:5 larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
-larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
 	art-3.09.03-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
-	+ cmake, cmake, cmake, sphinx, cmake
+		common:46 adds:5 = cmake, cmake, cmake, sphinx, cmake
 	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+		common:71 adds:0
 	larsoftobj-09.07.01.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+		common:76 adds:0
 	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+		common:169 adds:0
 #+end_example
 
 We suspect further factoring may exist:
 
 #+begin_example
+❯ coups subsets art-3.09.03-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
 art-3.09.03-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
 	canvas_base-3.12.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+		common:49 adds:0
 	art-3.09.03-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+		common:51 adds:0
 #+end_example
 
 Thus, define a final factoring:
 
 #+begin_example
+❯ coups subsets --extras art:5,canvas_base:5 larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
 larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
 	canvas_base-3.12.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
-	+ cmake, cmake, sphinx, cmake, cmake
+		common:44 adds:5 = cmake, cmake, cmake, sphinx, cmake
 	art-3.09.03-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
-	+ cmake, cmake, sphinx, cmake, cmake
+		common:46 adds:5 = cmake, cmake, cmake, sphinx, cmake
 	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+		common:71 adds:0
 	larsoftobj-09.07.01.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+		common:76 adds:0
 	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+		common:169 adds:0
 #+end_example
 
 It is important to understand that this factoring is based on
@@ -494,3 +512,20 @@ to hit scisoft!  to be continued, likely with a way to bring a
 manifest into the container to give to ~pullProducts -l <manifest>~.
 
 Hmm, and maybe that should simply be the norm....
+
+* Reasons to detest UPS in general and Scisoft in particular
+
+1. Manifests are not synchronized with actual dependencies expressed
+   in UPS table files.  They will either have the wrong version or
+   entirely omit a dependency.  
+
+2. Manifest files often have malformed lines, typically by omitting
+   flavor and quals.  Because of the inconsistent product file name
+   convention it can be impossible, or merely difficult to discover
+   what the flavor/quals might be.
+
+3. Scisoft indices are not kept up to date.  A product UPS table will
+   require another product which is not listed on a scisoft index
+   page.  This makes it impossible to discover the product name.  The
+   product *may* actually exist on scisoft but the index page is stale.
+

@@ -14,59 +14,34 @@ import os
 import requests
 from collections import namedtuple
 from .util import versionify, vunderify
-from .unko import oscpu2flavor
+from .product import Product
+from .scisoft import get_manifest
 
-
-def Manifest(name, version, flavor, quals, filename=None):
+def Manifest(name, version, flavor, quals, filename):
     '''
     Create a manifest tuple ("mtp").
 
     This tries to apply validation so loves to throw.
     '''
+    if not version:
+        raise ValueError("manifest requires a version")
     version = versionify(version)
+    if not flavor:
+        raise ValueError("manifest requires a flavor")
+    if not quals:
+        raise ValueError("manifest requires qualifiers")
+    
     if not isinstance(quals, str):
         quals = ":".join(quals)
     if "-" in quals:
         quals = quals.replace("-",":")
+
     if not filename:
-        dashquals = quals.replace(":","-")
-        filename = "-".join([name, version, flavor, dashquals])
-        filename += "_MANIFEST.txt"
+        raise ValueError("manifest requires a file name")
 
     return namedtuple("Manifest", "name version flavor quals filename")(
         name, version, flavor, quals, filename)
 
-
-def Product(name, version, flavor, quals, filename):
-    '''
-    Create a product tuple ("ptp").
-
-    This tries to apply validation so loves to throw.
-    '''
-    version = versionify(version)
-    if not isinstance(quals, str):
-        quals = ":".join(quals)
-    if not filename:
-        raise ValueError("a product tar file must be supplied")
-    if not flavor:
-        base = filename[:-len(".tar.bz2")]
-        n, v, rest = base.split("-", 2)
-        if n != name or versionify(v) != version:
-            raise ValueError(f"corrupt filename: {filename}")
-        if rest in oscpu2flavor.values():
-            flav = rest
-        else:
-            chunks = rest.split("-", 2)
-            os = chunks.pop(0)
-            cpu = chunks.pop(0)
-            flavor = oscpu2flavor[(os,cpu)] # hail mary
-            if not quals and chunks:
-                quals = "-".join(chunks)
-    if "-" in quals:
-        quals = quals.replace("-",":")
-
-    return namedtuple("Product", "name version flavor quals filename")(
-        name, version, flavor, quals, filename)
 
 
 def parse_filename(fname):
@@ -109,15 +84,17 @@ def wash_name(name, version=None, flavor=None, quals=None):
     return name,version,flavor,quals
 
 
-def make(name, version=None, flavor=None, quals=None):
+def make(name, version, flavor, quals):
     '''
     Make a Manifest tuple object
 
     The name cane be a _MANIFEST.txt file name or it may be a bundle
     name.  
     '''
-    name, version, flavor, quals = wash_name(name, version, flavor, quals)
-    return Manifest(name, version, flavor, quals)
+    version = versionify(version)
+    dquals = quals.replace(":","-")
+    filename = f'{name}-{version}-{flavor}-{dquals}_MANIFEST.txt'
+    return Manifest(name, version, flavor, quals, filename)
 
 def parse_body(text):
     '''
@@ -150,40 +127,38 @@ def parse_body(text):
     return ret
 
 
-base_url = "https://scisoft.fnal.gov/scisoft"
-def url(mf):
-    '''
-    Return a manifest URL from a Manifest tuple or a manifest file
-    name.
-    '''
-    if isinstance(mf, str):
-        mf = parse_filename(mf)
+# base_url = "https://scisoft.fnal.gov/scisoft"
+# def url(mf):
+#     '''
+#     Return a manifest URL from a Manifest tuple or a manifest file
+#     name.
+#     '''
+#     if isinstance(mf, str):
+#         mf = parse_filename(mf)
 
-    return os.path.join(base_url, "bundles", mf.name,
-                        vunderify(mf.version), "manifest",
-                        mf.filename)
-    
-
-def loads(mf):
-    '''
-    Load manifest text from a URI which can be a URL, local file, file
-    name to check on scisoft or a manifest tuple object.
-    '''
-    if isinstance(mf, str):
-        if "://" in mf:
-            return requests.get(mf).text
-        if os.path.exists(mf):
-            return open(mf).read()
-        if mf.endswith("_MANIFEST.txt"):
-            return loads(url(mf)) # try scisoft
-    return loads(mf.filename)    # assume a manifest tuple or object
+#     return os.path.join(base_url, "bundles", mf.name,
+#                         vunderify(mf.version), "manifest",
+#                         mf.filename)
+# def loads(mf):
+#     '''
+#     Load manifest text from a URI which can be a URL, local file, file
+#     name to check on scisoft or a manifest tuple object.
+#     '''
+#     if isinstance(mf, str):
+#         if "://" in mf:
+#             return requests.get(mf).text
+#         if os.path.exists(mf):
+#             return open(mf).read()
+#         if mf.endswith("_MANIFEST.txt"):
+#             return loads(url(mf)) # try scisoft
+#     return loads(mf.filename)    # assume a manifest tuple or object
 
 
-def load(mf):
+def load(mtp):
     '''
     Load manifest, return list of product.Product tuples
     '''
-    return parse_body(loads(mf))
+    return parse_body(get_manifest(mtp))
 
 
 def cmp(man1, man2):

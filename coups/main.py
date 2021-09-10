@@ -8,6 +8,7 @@ A main object used by CLI or embedded into some larger context.
 # the terms of the GNU Affero General Public License.
 
 import os
+import sys
 from . import queries, graph
 from coups.store import *
 
@@ -32,8 +33,10 @@ class Coups:
         '''
         q = self.session.query(Type).filter_by(**kwds)
         if flavor:
+            #print(f"query filter on flavor {flavor}")
             q = q.filter(Type.flavor.has(Flavor.name==flavor))
         if quals:
+            #print(f"query filter on quals {quals}")
             if isinstance(quals, str):
                 quals = quals.split(":")
             for qual in quals:
@@ -62,11 +65,10 @@ class Coups:
         If kwds resolve a query for object, return first match, else
         create, load and return a new one.
         '''
-        obj = self.qfirst(Type, **kwds)
+        obj = self.qfirst(Type, flavor=flavor, quals=quals, **kwds)
         if obj:
             return obj
         obj = Type(**kwds)
-        self.session.add(obj)
         if flavor:
             obj.flavor = self.lookup(Flavor, name=flavor)
         if quals:
@@ -74,6 +76,7 @@ class Coups:
                 quals = quals.split(":")
             for qual in quals:
                 obj.quals.append(self.lookup(Qual, name=qual))
+        self.session.add(obj)
         return obj
 
 
@@ -145,7 +148,6 @@ class Coups:
 
         pobj = Product(name=ptp.name, version=ptp.version, filename=ptp.filename)
         pobj.flavor = self.flavor(ptp.flavor)
-        # print(f'product quals |{ptp.quals}|')
         if ptp.quals:
             for q in ptp.quals.split(":"):
                 q1 = self.qual(q)
@@ -197,29 +199,33 @@ class Coups:
     def load_deps_text(self, text, commit=True):
         '''
         Parse text from 'ups depend' and load dependencies for first
-        product.
+        product.  Return list of seed followed by parent products.
         '''
         from coups import depend
         from coups.queries import products
         entries = depend.parse(text)
         top = entries[0]
-        child = products(self.session, top.name, top.vunder, top.flavor, top.quals)
+        child = products(self.session, top.name, top.version, top.flavor, top.quals)
         if not child:
-            raise ValueError(f"No unique product: {top[:-1]}")            
+            raise ValueError(f"No unique child product: {top[:-1]}, got {len(child)}")
         child = child[0]
 
+        ret = [child]
         for ent in entries[1:]:
             if ent.name in top.parents:
-                parent = products(self.session, ent.name, ent.vunder, ent.flavor, ent.quals)
+                parent = products(self.session, ent.name, ent.version, ent.flavor, ent.quals)
                 if not parent:
-                    raise ValueError(f"No unique product: {ent[:-1]}")
+                    sys.stderr.write(f"No unique parent product: {ent[:-1]}, got {len(parent)}")
+                    continue
                 parent = parent[0]
+                ret.append(parent)
                 if parent in child.provides:
                     continue
                 child.provides.append(parent)
         if commit:
             self.session.commit()
-        
+        return ret
+
 
     def commit(self, *objs):
         for obj in objs:

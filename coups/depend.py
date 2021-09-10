@@ -9,8 +9,9 @@ Functions related to processing ups depend output.
 
 from collections import defaultdict, namedtuple
 import networkx as nx
+from coups.util import versionify
 
-Entry = namedtuple('Entry', 'name vunder flavor quals parents')
+Entry = namedtuple('Entry', 'name version flavor quals parents')
 
 def parse(text):
     '''
@@ -41,13 +42,13 @@ def parse(text):
         parts = body.split()
         pkg = parts[0]
 
-        vunder = parts[1]
+        version = versionify(parts[1])
         flavor = parts[3]
         try:
             quals = parts[parts.index("-q")+1]
         except ValueError:
             quals = ""
-        entries.append(Entry(pkg,vunder,flavor,quals,list()))
+        entries.append(Entry(pkg,version,flavor,quals,list()))
 
         #print (f'{last_n}->{n} {pkg} {stack}')
 

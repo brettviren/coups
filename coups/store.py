@@ -92,7 +92,7 @@ class Product(Base):
 
     filename = Column(String, unique=True)
 
-    flavor_id = Column(Integer, ForeignKey('flavor.id'))
+    flavor_id = Column(Integer, ForeignKey('flavor.id'), nullable=False)
 
     manifests = relationship("Manifest",
                              secondary=lambda: ProductManifest,

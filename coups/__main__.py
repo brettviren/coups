@@ -67,6 +67,33 @@ def bundles(ctx, online, missing):
     show.sort()
     print(' '.join(show))
 
+@cli.command("packages")
+@click.option("--online/--no-online", default=False,
+              help="Check online instead of DB")
+@click.option("--missing/--no-missing", default=False,
+              help="List what is online but not in our DB")
+@click.pass_context
+def packages(ctx, online, missing):
+    '''
+    List known packages
+    '''
+    if online or missing:
+        there = set(list(coups.scisoft.packages(False)))
+
+    if not online or missing:
+        here = set(ctx.obj.names("product"))
+
+    if online:
+        show = there
+    elif missing:
+        show = there-here
+    else:
+        show = here
+    show = list(show)
+    show.sort()
+    print(' '.join(show))
+
+
 
 @cli.command("get-manifest")
 @click.option("-o", "--output", default="-",
@@ -89,7 +116,7 @@ def get_manifest(ctx, output, quals, flavor, version, name):
     if input is really in bad shape.
     '''
     import coups.manifest
-    import coups.render
+    from coups.render import manifest_line
 
     if output == "-":
         output="/dev/stdout"
@@ -100,7 +127,7 @@ def get_manifest(ctx, output, quals, flavor, version, name):
     with open(output, "w") as fp:
         fp.write("# " + str(mtp) + "\n")
         for prod in prods:
-            fp.write(coups.render.manifest_line(prod) + "\n")
+            fp.write(manifest_line(prod) + "\n")
 
 
 def load_one_manifest(main, mtp, refresh):
@@ -166,7 +193,6 @@ def load_one_bundle(main, bundle, versions=(), newer=None, refresh=False):
             click.echo(err)
             continue
 
-
 @cli.command("load-bundle")
 @click.option("--refresh/--no-refresh", default=False,
               help="If refresh, then will re-read existing")
@@ -186,6 +212,74 @@ def load_bundle(ctx, refresh, newer, versions, bundle):
     if versions:
         versions = set([v for v in versions.split(',') if v])
     load_one_bundle(ctx.obj, bundle, versions, newer, refresh)
+
+
+def load_one_package(main, package, versions=(), newer=None, refresh=False):
+    from coups.store import Product, Flavor, Qual
+
+    for ver in coups.scisoft.package_versions(package, full=False):
+
+        if versions and ver not in versions:
+            continue
+
+        if newer and ver < newer:
+            print(f'reach old {ver} < {newer}')
+            break
+
+        try:
+            for pfname in coups.scisoft.package_products(package, ver, False):
+                pobj = main.qfirst(Product, filename=pfname)
+
+                if pobj and not refresh:
+                    click.echo(f'have {pobj}')
+                    return
+
+                try:
+                    ptp = coups.product.parse_filename(pfname)
+                except ValueError as err:
+                    sys.stderr.write(str(err) + '\n')
+                    continue
+
+                if not pobj:
+                    pobj = Product(filename=ptp.filename)
+                    main.session.add(pobj)
+                pobj.name = ptp.name
+                pobj.version = ptp.version
+                if ptp.flavor:
+                    pobj.flavor = main.lookup(Flavor, name=ptp.flavor)
+                else:
+                    pobj.flavor = main.lookup(Flavor, name="NULL")
+                pobj.quals = []
+                if ptp.quals:
+                    pobj.quals = [ main.lookup(Qual, name=q) for q in ptp.quals.split(":") ]
+                main.commit(pobj)
+                print(pobj)
+            main.commit()
+
+        except ValueError as err:
+            click.echo(f"broken package: {package} {ver}")
+            click.echo(err)
+            continue
+
+
+@cli.command("load-package")
+@click.option("--newer", default=None,
+              help="Only load those with versions lexically greater or equal than")
+@click.option("--versions", default=None,
+              help="Comma-separated list of versions to consider")
+@click.option("--refresh/--no-refresh", default=False,
+              help="If refresh, then will re-read existing")
+@click.argument("package")
+@click.pass_context
+def load_package(ctx, newer, versions, package, refresh):
+    '''
+    Load a package of products into DB.
+    '''
+    if versions:
+        versions = set([v for v in versions.split(',') if v])
+    load_one_package(ctx.obj, package, versions, newer, refresh)
+
+
 
 
 @cli.command("update")
@@ -282,125 +376,142 @@ def compare_bundles(ctx, bundle1, bundle2):
 @click.option("-s", "--subsets", default = "",
               help="Comma-separated list of allowed bundle names ot use as subsets")
 @click.option("--builder", default="docker",
-              type=click.Choice(["docker","podman","dockerfile"]),
+              type=click.Choice(["docker","podman"]),
               help="What container builder to use")
-@click.option("-B", "--basename", default = "brettviren/coups-",
-              help="Container base name appended to every generated name")
+@click.option("--manifests", default="scisoft",
+              type=click.Choice(["scisoft", "coups","local"]),
+              help="Where manifest will be provided")
+@click.option("--context", default="inline",
+              type=click.Choice(["inline", "directory"]),
+              help="Select Dockerfile context form")
+@click.option("-P", "--prefix", default = "brettviren/coups-",
+              help="Name prepended to every generated image name")
+@click.option("-O", "--operating-system", default = "slf7",
+              type=click.Choice(["slf7"]),
+              help="OS to target")
 @click.option("-S", "--strip/--no-strip", default = False,
               help="If true, run 'strip' on .so files")
 @click.option("--extras", default=None,
               help="Comma-separated list bundle:number")
 @click.option("-o", "--output", default=None,
-              help="Output file, '-' is stdout, default is manifest file name")
+              help="Output file or directory")
 @click.argument("name")
 @click.pass_context
-def container(ctx, quals, flavor, version, subsets, number, builder, basename, strip, extras, output, name):
+def container(ctx, quals, flavor, version, subsets, number,
+              builder, manifests, context,
+              prefix, operating_system, strip, extras, output, name):
     '''
     Build a layered container or emit files to build one.
 
-    The name may be that of a bundle or it may be a manifest file
+    The "name" may be that of a bundle or it may be a manifest file
     name.  If the latter then specifying version, flavor and quals is
     optional.
     '''
-
-    raise RuntimeError("wip: move this to render")
-
     from coups.store import Manifest
+    from coups.render import dockerfile_base, dockerfile_manifest
+    from coups.render import manifest_line
+
+    if manifests == "local": manifests = "coups"
+    if manifests == "coups" and context != "directory":
+        sys.stderr.write("Warning: setting context to directory to accomodate coups manifests\n")
+        context = "directory"
+    local = manifests == "coups"
 
     subsets = set([s for s in subsets.split(",") if s])
 
-    mtp = coups.manifest.make(name, version, flavor, quals)
-    man = ctx.obj.qfirst(Manifest, **mtp._asdict())
-    submans = coups.queries.subsets(ctx.obj.session, man, number)
+    if name.endswith("_MANIFEST.txt"):
+        mtp = coups.manifest.parse_filename(name)
+    else:
+        mtp = coups.manifest.make(name, version, flavor, quals)
+
+    # who's
+    theman = ctx.obj.qfirst(Manifest, **mtp._asdict())
+    submans = coups.queries.subsets(ctx.obj.session, theman, number)
 
     if extras:
         for extra in extras.split(","):
             mname,mnum = extra.split(":")
             mnum = int(mnum)
-            more = coups.queries.subsets(ctx.obj.session, man, mnum)
+            more = coups.queries.subsets(ctx.obj.session, theman, mnum)
             submans += [m for m in more if m.name == mname]
 
-    submans = coups.manifest.sort_submans(man, submans)
+    submans = coups.manifest.sort_submans(theman, submans)
     
-    if subsets:
-        subsets.add(mtp.name)
-        # click.echo(f'restricting to sub-manifests: {subsets}')
-        keep=list()
-        for sm in submans:
-            l,m,r = coups.manifest.cmp_objects(man, sm)
-            if len(m) == 0:
-                continue
-            if sm.name in subsets:
-                keep.append(sm)
-        submans = keep
+    keep=list()
+    for sm in submans:
+        l,m,r = coups.manifest.cmp_objects(theman, sm)
+        if len(m) == 0:
+            continue
+        keep.append(sm)
+    submans = keep
 
-    dhpre=""
-    if builder == "podman":
-        dhpre = "docker://"
-
-    base_layer_text = f'''FROM {dhpre}scientificlinux/sl:7
-RUN \\
-    yum -y install epel-release && \\
-    yum -y install https://repo.ius.io/ius-release-el7.rpm && \\
-    yum -y update && \\
-    yum -y install less curl wget tar perl redhat-lsb-core zip unzip rsync && \\
-    yum clean all
-'''
-    base_layer_name = f'{basename}base:0.1' # version refers to above df text
-
-    layers = [(base_layer_name, base_layer_text)]
- 
-    stripcmd=striplab=""
-    if strip:
-        striplab="-strip"
-        # for some reason I can not figure out, the find command to
-        # remove source directories complains about them not existing,
-        # yet it actually succeeds.
-        stripcmd = "&& find /products -name '*.so' -print -exec strip {} \\; && find /products -name source -type d -exec rm -rf {} \\; || echo 'Ignore these errors'"
+    layers = list()
+    layers.append(dockerfile_base(prefix, operating_system))
 
     for one in submans:
-        baseimg = layers[-1][0]
-        nbq = '-'.join(one.pp_nonbuild)
-        layer_text = f'''FROM {baseimg}
-LABEL bundle="{one.name}" version="{one.vunder}" flavor="{one.flavor}" compiler={one.pp_compiler} build={one.pp_build}
-RUN mkdir -p /products && \\
-    curl https://scisoft.fnal.gov/scisoft/bundles/tools/pullProducts > pullProducts && \\
-    chmod +x pullProducts && \\
-    ./pullProducts -s /products slf7 {one.name}-{one.vunder} {nbq} {one.pp_build} {stripcmd}
-'''
-        layer_name = f'{basename}{one.name}:{one.vunder}-{one.flavor}-{one.pp_compiler}-{one.pp_build}{striplab}'
-        layer_name = layer_name.replace("+","-")
-        layers.append((layer_name, layer_text))
+        prev = layers[-1][0]
+        new = dockerfile_manifest(prev, one,
+                                  prefix, operating_system,
+                                  local, strip)
+        layers.append(new)
 
-    lines = []
-    if builder == "dockerfile":
-        for layer in layers:
-            lines.append(f'# image name: {layer[0]}')
-            lines.append(layer[1] + '\n')
+    # lines for the rendered script
+    shlines = [
+        "#!/bin/bash",
+        "set -e",
+        "set -x",
+    ]
+    if output is None or output == "-":
+        script = "/dev/stdout"
     else:
-        lines += [
-            "#!/bin/bash",
-            "set -e",
-            "set -x",
-        ]
-        for layer in layers:
-            lines.append("# -------------------")
-            lines.append(f'echo "building {layer[0]}"\n')
-            lines.append(f'cat <<EOF | {builder} build -t {layer[0]} -')
-            lines.append(layer[1] + '\nEOF\n')
-            lines.append(f'echo "{layer[0]} done"\n')
-            lines.append("# -------------------\n")            
-    dashquals = quals.replace(":", "+")
-    if output is None:
-        filename = f'{name}-{version}-{flavor}-{dashquals}.sh'
-        click.echo(filename)
-    elif output == "-":
-        filename = "/dev/stdout"
-    else:
-        filename = output
-        click.echo(filename)
+        script = output
 
-    open(filename, "w").write('\n'.join(lines))
+    if context == "directory":
+        if output is None or output == "-" or output == ".":
+            outdir = "."
+            script = "/dev/stdout"
+        else:
+            outdir = output
+            script = output + ".sh"
+
+        if not os.path.exists(outdir):
+            os.makedirs(outdir)
+        for ilayer, (dfname, dftext) in enumerate(layers):
+            ldir = os.path.join(outdir, dfname)
+            if not os.path.exists(ldir):
+                os.makedirs(ldir)
+            shlines += [
+                f'cd {ldir} || exit -1',
+                f'{builder} build -t {dfname} . || exit -1',
+                'cd -\n'
+            ]
+            sys.stderr.write(ldir + "\n")
+
+            dfilename = os.path.join(ldir, "Dockerfile")
+            with open(dfilename, "w") as fp:
+                fp.write(dftext + '\n')
+            if not local or ilayer == 0:
+                continue
+            # provide manifest file to build context
+            iman = ilayer-1
+            one = submans[iman]
+            mfilename = os.path.join(ldir, one.filename)
+            with open(mfilename, "w") as fp:
+                for p in one.products:
+                    fp.write(manifest_line(p) + '\n')
+    # inline
+    else:
+        for dfname, dftext in layers:
+            shlines.append("# -------------------")
+            shlines.append(f'echo "building {dfname}"\n')
+            shlines.append(f'cat <<EOF | {builder} build -t {dfname} -')
+            shlines.append(dftext + '\nEOF\n')
+            shlines.append(f'echo "{dfname} done"\n')
+            shlines.append("# -------------------\n")            
+
+    if script != "/dev/stdout":
+        click.echo(script)
+    open(script, "w").write('\n'.join(shlines))
 
 
 @cli.command("products")
@@ -539,7 +650,7 @@ def subsets(ctx, quals, flavor, version, name, number, extras):
 
 @cli.command("manifest")
 @click.option("-o", "--output", default=None,
-              help="Output file, '-' is stdout, default is manifest file name")
+              help="Output file, '-' is stdout, default uses manifest file name")
 @click.option("-q", "--quals", default=None,
               help="Colon-separate list of qualifiers")
 @click.option("-f", "--flavor", default=None,
@@ -550,25 +661,29 @@ def subsets(ctx, quals, flavor, version, name, number, extras):
 @click.pass_context
 def manifest(ctx, output, quals, flavor, version, name):
     '''
-    Output matching manifest files
+    Output a manifest file
     '''
-    name,version,flavor,quals = wash_name(name,version,flavor,quals)
-    mans = coups.queries.manifests(ctx.obj.session,
-                                   name, version, flavor, quals)
-    for man in mans:
+    from coups.store import Manifest
+    from coups.render import manifest_line
+    if name.endswith("_MANIFEST.txt"):
+        mtp = coups.manifest.parse_filename(name)
+    else:
+        mtp = coups.manifest.make(name, version, flavor, quals)
+    man = ctx.obj.qfirst(Manifest, **mtp._asdict())
+    if not man:
+        sys.stderr.write(f'No such manifest: {mtp}\n')
 
-        if output is None:
-            filename = man.filename
-            click.echo(filename)
-        elif output == "-":
-            filename = "/dev/stdout"
-        else:
-            filename = output
-            click.echo(filename)
+    if output is None:
+        filename = man.filename
+    elif output == "-":
+        filename = "/dev/stdout"
+    else:
+        filename = output
+    sys.stderr.write(f'writing {filename}\n')
 
-        with open(filename, "w") as fp:
-            for p in mans[0].products:
-                fp.write(p.manifest_line + '\n')
+    with open(filename, "w") as fp:
+        for p in man.products:
+            fp.write(manifest_line(p) + '\n')
 
 
 @cli.command("dotify")
@@ -628,10 +743,10 @@ def dotify(ctx, output, quals, flavor, version, type, distance, name):
     plt.savefig(output)
 
 
-@cli.command("load-deps")
+@cli.command("load-deps-file")
 @click.argument("dfile")
 @click.pass_context
-def load_deps(ctx, dfile):
+def load_deps_file(ctx, dfile):
     '''
     Load dependencies for the top package in a deps files.
 
@@ -643,9 +758,12 @@ def load_deps(ctx, dfile):
     text = open(dfile).read()
     ctx.obj.load_deps_text(text, True)
 
-@cli.command("load-manifest-deps")
-@click.option("--prefix", default="ups depend",
-              help="The command to run to get the 'ups depend' text")
+
+@cli.command("load-deps")
+@click.option("--singularity", default=None,
+              help="Run 'ups depend' in the named Singularity container")
+@click.option("-P", "--products", multiple=True,
+              help="A UPS 'products' area")
 @click.option("-q", "--quals", default=None,
               help="Colon-separate list of qualifiers")
 @click.option("-f", "--flavor", default=None,
@@ -654,42 +772,106 @@ def load_deps(ctx, dfile):
               help="Set the version")
 @click.argument("name")
 @click.pass_context
-def load_manifest_deps(ctx, prefix, quals, flavor, version, name):
+def load_deps(ctx, singularity, products,
+              quals, flavor, version, name):
     '''
-    Load dependencies for packages listed in a manifest.
-
-    This runs 'ups depend' as given by the --prefix option.
-
-    The prefix may contain a '%s' which will be filled in with
-    'ups depend' arguments.  Else they are appended.
-
-    pro tip:
-    --prefix='singularity exec --bind /cvmfs sl7.sif /bin/bash -c "source /cvmfs/larsoft.opensciencegrid.org/products/setup && ups depend %s"'
-    
+    Load product-level dependencies given a seed product.
     '''
     import subprocess
-    name,version,flavor,quals = wash_name(name,version,flavor,quals)
-    mans = coups.queries.manifests(ctx.obj.session,
-                                   name, version, flavor, quals)
+    from coups.store import Product
+    from coups.util import vunderify
 
-    for man in mans:
-        for prod in man.products:
-            quals = [str(q) for q in prod.quals]
-            quals.sort()
-            quals = ":".join(quals) # fixme this should be in Product!
-            if quals:
-                quals = "-q " + quals
-            flav = str(prod.flavor)
-            if flav:
-                flav = "-f " + flav
-            args = f'{prod.name} {prod.vunder} {flav} {quals}'
-            if '%' in prefix:
-                cmd = prefix % (args)
-            else:
-                cmd = prefix + ' ' + args
-            print (cmd)
-            text = subprocess.check_output(cmd, shell=True).decode()
-            ctx.obj.load_deps_text(text, False)
+    if name.endswith(".tar.bz2"): # it is a product file name
+        theprod = ctx.obj.qfirst(Product, filename=name)
+    else:                       # bits and pieces
+        kwds=dict(name=name)
+        if version:
+            kwds["version"] = versionify(version)
+        if flavor:
+            kwds["flavor"] = flavor
+        if quals:
+            kwds["quals"] = quals
+        theprod = ctx.obj.lookup(Product, **kwds)
+    if not theprod:
+        sys.stderr.write("No seed product found")
+        return -1
+
+    setup = " && ".join([f'source {one}/setup' for one in products])
+    if singularity:
+        cmd=f'singularity exec --bind /cvmfs {singularity} /bin/bash -c "{setup} && ups depend %s"'
+    else:
+        cmd=f'/bin/bash -c "{setup} && ups depend %s"'
+
+    def do_prod(prod):
+        vunder = vunderify(prod.version)
+        farg = f"-f {prod.flavor}" if prod.flavor else ""
+        qarg = ":".join([str(q) for q in prod.quals]) if prod.quals else ""
+        if qarg: qarg = f'-q {qarg}'
+        args = f'{prod.name} {vunder} {farg} {qarg}'
+        torun = cmd % args
+        #print(torun)
+        text = subprocess.check_output(torun, shell=True).decode()
+        prods = ctx.obj.load_deps_text(text, False);
+        print(f'{prod} with {len(prods)-1}')
+        if len(prods) <= 1:
+            return
+        for prod in prods[1:]:
+            do_prod(prod)
+        
+    do_prod(theprod)
+
+    ctx.obj.commit()
+
+@cli.command("load-manifest-deps")
+@click.option("--singularity", default=None,
+              help="Run 'ups depend' in the named Singularity container")
+@click.option("-P", "--products", multiple=True,
+              help="A UPS 'products' area")
+@click.argument("manifest")
+@click.pass_context
+def load_manifest_deps(ctx, singularity, products, manifest):
+    '''
+    Load product-level dependencies given a seeding manifest.
+    '''
+    import subprocess
+    from coups.store import Manifest
+    from coups.util import vunderify
+
+    setup = " && ".join([f'source {one}/setup' for one in products])
+    if singularity:
+        cmd=f'singularity exec --bind /cvmfs {singularity} /bin/bash -c "{setup} && ups depend %s"'
+    else:
+        cmd=f'/bin/bash -c "{setup} && ups depend %s"'
+
+    def do_prod(prod):
+        vunder = vunderify(prod.version)
+        farg = f"-f {prod.flavor}" if prod.flavor else ""
+        qarg = ":".join([str(q) for q in prod.quals]) if prod.quals else ""
+        if qarg: qarg = f'-q {qarg}'
+        args = f'{prod.name} {vunder} {farg} {qarg}'
+        torun = cmd % args
+        try:
+            text = subprocess.check_output(torun, shell=True).decode()
+        except subprocess.CalledProcessError as err:
+            sys.stderr.write(str(err) + "\n")
+            sys.stderr.write(torun + "\n")
+            return
+        #print(text)
+        try:
+            prods = ctx.obj.load_deps_text(text, False);
+        except ValueError as err:
+            sys.stderr.write(str(err))
+            return
+        print(f'{prod} with {len(prods)-1}')
+        # if len(prods) <= 1:
+        #     return
+        # for prod in prods[1:]:
+        #     do_prod(prod)
+        
+    mtp = ctx.obj.qfirst(Manifest, filename=manifest)
+    for theprod in mtp.products:
+        do_prod(theprod)
+
     ctx.obj.commit()
 
 

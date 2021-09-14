@@ -26,6 +26,28 @@ The ~coups~ command can:
 
 - Render graphs showing product/manifest relationships.
 
+* Just let me type something
+
+1. Visit https://scisoft.fnal.gov/scisoft/bundles/
+
+2. Click on:
+   - a bundle link
+   - a version link
+   - the ~manifests~ link
+3. Select (copy) a manifest file name for use as ~<paste>~ below
+
+#+begin_example
+$ coups load-manifest <paste>
+$ coups subsets <paste>
+$ coups container -o build.sh <paste>
+$ bash build.sh
+#+end_example
+
+But, depending on the bundle, any bugs or weirdness in its manifest
+and products, this may give non-optimal or even broken container image
+layers.  So, read on.
+
+
 * Taxonomy
 
 *coups* follows the taxonomy expressed by how scisoft server.  It
@@ -507,25 +529,91 @@ advantageous as the fixed container can reuse this predecessor.
 ❯ bash build-dune-fix.sh
 #+end_example
 
-crap: however, of course ~pullProducts~ will fail because it's hardwired
-to hit scisoft!  to be continued, likely with a way to bring a
-manifest into the container to give to ~pullProducts -l <manifest>~.
+** Custom manifests
 
-Hmm, and maybe that should simply be the norm....
+~coups~ allows construction and use of custom manifests.  With these we
+can fix problems like the above or provide additional products.  The
+steps are simple:
 
-* Reasons to detest UPS in general and Scisoft in particular
+#+begin_example
+❯ coups manifest  dune -v 09.28.04 -f Linux64bit+3.10-2.17 -q e20:prof
+writing dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+❯ mv dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt \
+     dune-09.28.04.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+❯ emacs dune-09.28.04.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+❯ coups load-manifest  dune-09.28.04.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+❯ coups container \
+  --manifests local -o build-dune-01 \
+  --extras art:1,canvas_base:1 \
+  dune-09.28.04.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+❯ tree build-dune-01
+build-dune-01
+└── brettviren
+    ├── coups-art:3.06.03d-slf7-prof-e20
+    │   ├── art-3.06.03d-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+    │   └── Dockerfile
+    ├── coups-canvas_base:3.10.02d-slf7-prof-e20
+    │   ├── canvas_base-3.10.02d-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+    │   └── Dockerfile
+    ├── coups-dune:09.28.04.01-slf7-prof-e20
+    │   ├── Dockerfile
+    │   └── dune-09.28.04.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+    ├── coups-dune:09.28.04-slf7-prof-e20
+    │   ├── Dockerfile
+    │   └── dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+    ├── coups-larsoft:09.28.04-slf7-s110-prof-e20
+    │   ├── Dockerfile
+    │   └── larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+    ├── coups-larsoftobj:09.07.01-slf7-prof-e20
+    │   ├── Dockerfile
+    │   └── larsoftobj-09.07.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+    ├── coups-larwire:09.02.13-slf7-s110-prof-e20
+    │   ├── Dockerfile
+    │   └── larwire-09.02.13-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+    ├── coups-libtorch:1.6.0b-slf7-prof-e20
+    │   ├── Dockerfile
+    │   └── libtorch-1.6.0b-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+    └── coups-slf7-base:0.1
+        └── Dockerfile
+❯ bash build-dune-01.sh
+❯ docker run -ti brettviren/coups-dune:09.28.04.01-slf7-prof-e20
+[root@eeaacb409943 /]# source /products/setup
+[root@eeaacb409943 /]# setup dunetpc v09_28_04 -q e20:prof
+#+end_example
 
-1. Manifests are not synchronized with actual dependencies expressed
-   in UPS table files.  They will either have the wrong version or
-   entirely omit a dependency.  
+Take note the above switched to a directory to hold the docker build
+context instead of piping the Dockerfile to docker's stdin.  This is
+to also deliver the custom manifest file.  Inspecting the Dockerfile
+one may see the manifest file being copied in and ~pullProducts~ being
+told to use this file instead of trying to download it from Scisoft.
+For consistency, all manifest files are provided "locally" in this
+mode even though they may be identical to what is available from
+Scisoft.
 
-2. Manifest files often have malformed lines, typically by omitting
+
+
+* Problems to watch out for with UPS and Scisoft
+
+Here, lists some of the "surprises" encountered when working with
+Scisoft manifests.  Had they been anticipated, ~coups~ development would
+have proceeded more quickly.  
+
+1. Manifests may not list all dependencies which are expressed in UPS
+   table files.  They my have a wrong version or omit a dependency.
+   When making an isolated products distribution based on a manifest
+   these missing dependencies may not become apparent until one
+   performs UPS environment setup.
+
+2. Manifest files may have malformed lines, typically by omitting
    flavor and quals.  Because of the inconsistent product file name
    convention it can be impossible, or merely difficult to discover
-   what the flavor/quals might be.
+   what the flavor/quals might be.  ~coups~ will attempt to fix these
+   mistakes by attempting to parse and interpret the given product ~tar~
+   file name.
 
-3. Scisoft indices are not kept up to date.  A product UPS table will
-   require another product which is not listed on a scisoft index
-   page.  This makes it impossible to discover the product name.  The
-   product *may* actually exist on scisoft but the index page is stale.
-
+3. Scisoft indices may not be up to date.  A product tar file may
+   actually be uploaded and exist on Scisoft.  The indices should be
+   rebuilt as a result of the upload but this has been known to fail.
+   Use of a manifest from Scisoft may not care about the missing index
+   but ~coups~ requires the indices to be well-formed in order to
+   produce manifests to work around the other problems.

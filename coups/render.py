@@ -105,8 +105,9 @@ def dockerfile_manifest(from_image, man,
         stripcmd = "&& find /products -name '*.so' -print -exec strip {} \\; && find /products -name source -type d -exec rm -rf {} \\; || echo 'Ignore these errors'"
 
 
-    dfname = f'{man.name}:{man.version}-{operating_system}-{quals}{striplab}'
+    dfname = f'{man.version}-{operating_system}-{quals}{striplab}'
     dfname = dfname.replace("+","-").replace(":","-").lower()
+    dfname = prefix + man.name + ':' + dfname
 
     vunder = vunderify(man.version)
     dftext = f'''
@@ -118,4 +119,4 @@ RUN mkdir -p /products && \\
     chmod +x pullProducts && \\
     ./pullProducts {local_flag} -s /products {operating_system} {man.name}-{vunder} {qual_set} {build_spec} {stripcmd}
 '''
-    return prefix+dfname, dftext
+    return dfname, dftext

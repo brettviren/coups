@@ -133,21 +133,19 @@ def get_manifest(ctx, output, quals, flavor, version, name):
 def load_one_manifest(main, mtp, refresh):
     from coups.store import Manifest, Product
 
-    mobj = main.qfirst(Manifest, **mtp._asdict())
+    mobj, existing = main.manifest(mtp, True)
 
-    if mobj and not refresh:
+    if existing and not refresh:
         click.echo(f'have {mobj}')
         return False
 
-    if mobj:
-        mobj.products.clear() # correct?
-    else:
-        mobj = main.lookup(Manifest, **mtp._asdict())
+    mobj.products.clear() # correct?
+    main.session.add(mobj)
                 
     for ptp in coups.manifest.load(mtp):
-        pobj = main.lookup(Product, **ptp._asdict())
+        pobj, existing = main.product(ptp, True)
         mobj.products.append(pobj)
-    main.commit(mobj)
+    main.session.commit()
     click.echo(f'load {mobj}')    
     return True
 
@@ -661,30 +659,31 @@ def subsets(ctx, quals, flavor, version, name, number, extras):
 @click.pass_context
 def manifest(ctx, output, quals, flavor, version, name):
     '''
-    Output a manifest file
+    Output a manifest file from DB
     '''
     from coups.store import Manifest
     from coups.render import manifest_line
-    if name.endswith("_MANIFEST.txt"):
-        mtp = coups.manifest.parse_filename(name)
-    else:
-        mtp = coups.manifest.make(name, version, flavor, quals)
+    mtp = coups.manifest.make(name, version, flavor, quals)
+
     man = ctx.obj.qfirst(Manifest, **mtp._asdict())
     if not man:
         sys.stderr.write(f'No such manifest: {mtp}\n')
 
     if output is None:
-        filename = man.filename
+        sys.stderr.write(f'Writing to {man.filename}\n')
+        fp = open(man.filename, "w")
     elif output == "-":
-        filename = "/dev/stdout"
+        sys.stderr.write('Writing to stdout\n')
+        fp = sys.stdout
     else:
-        filename = output
-    sys.stderr.write(f'writing {filename}\n')
+        sys.stderr.write(f'Writing to {output}\n')
+        fp = open(output, "w")
 
-    with open(filename, "w") as fp:
-        for p in man.products:
-            fp.write(manifest_line(p) + '\n')
-
+    for p in man.products:
+        fp.write(manifest_line(p) + '\n')
+    fp.flush()
+    fp.close()
+    
 
 @cli.command("dotify")
 @click.option("-o", "--output", default="/dev/stdout",

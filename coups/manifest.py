@@ -91,6 +91,7 @@ def make(name, version, flavor, quals):
     The name cane be a _MANIFEST.txt file name or it may be a bundle
     name.  
     '''
+    name, version, flavor, quals = wash_name(name, version, flavor, quals)
     version = versionify(version)
     dquals = quals.replace(":","-")
     filename = f'{name}-{version}-{flavor}-{dquals}_MANIFEST.txt'
@@ -158,7 +159,11 @@ def load(mtp):
     '''
     Load manifest, return list of product.Product tuples
     '''
-    return parse_body(get_manifest(mtp))
+    if os.path.exists(mtp.filename):
+        text = open(mtp.filename).read()
+    else:
+        text = get_manifest(mtp)
+    return parse_body(text)
 
 
 def cmp(man1, man2):

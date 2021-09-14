@@ -11,6 +11,7 @@ import os
 import sys
 from . import queries, graph
 from coups.store import *
+from sqlalchemy.exc import IntegrityError
 
 class Coups:
 
@@ -49,7 +50,11 @@ class Coups:
         '''
         Perform query and return first
         '''
-        return self.query(Type, **kwds).first()
+        try:
+            return self.query(Type, **kwds).first()
+        except IntegrityError:
+            print(f'{Type} {kwds}')
+            raise
 
     def qall(self, Type, **kwds):
         '''
@@ -117,7 +122,7 @@ class Coups:
         second value true if the manifest was already existing.
         '''
         m1 = queries.manifest(self.session, mtp)
-        if (m1):
+        if m1:
             if return_existing:
                 return (m1, True)
             return m1
@@ -136,7 +141,7 @@ class Coups:
             return (m1, False)
         return m1
 
-    def product(self, ptp):
+    def product(self, ptp, return_existing=False):
         '''
         Return a product, given a manifest.Product tuple.
 
@@ -144,6 +149,8 @@ class Coups:
         '''
         pobj = self.session.query(Product).filter_by(filename = ptp.filename).first()
         if pobj:
+            if return_existing:
+                return pobj, True
             return pobj
 
         pobj = Product(name=ptp.name, version=ptp.version, filename=ptp.filename)
@@ -153,6 +160,8 @@ class Coups:
                 q1 = self.qual(q)
                 pobj.quals.append(q1)
         self.session.add(pobj)
+        if return_existing:
+            return pobj, False
         return pobj
             
     def names(self, what, field="name"):

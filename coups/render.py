@@ -41,7 +41,13 @@ supported_oses = ("slf7",)
 # The external base image on which we build
 default_base_image = "docker.io/scientificlinux/sl:7"
 # Packages to add to the base image
-default_base_packages = "less curl wget tar perl redhat-lsb-core zip unzip rsync".split()
+default_base_packages = """
+less curl wget tar perl redhat-lsb-core zip unzip rsync
+xxhash xxhash-libs cyrus-sasl-devel libzstd libzstd-devel 
+mesa-libGL-devel mesa-libGLU-devel ftgl glew-devel gl2ps 
+libstdc++-devel gcc gcc-c++ libgcc.i686 glibc-devel.i686 libstdc++.i686 libffi-devel
+""".split()
+
 def dockerfile_base(prefix=default_image_prefix,
                     operating_system=default_operating_system,
                     from_image=default_base_image,

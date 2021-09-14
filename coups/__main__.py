@@ -416,14 +416,13 @@ def container(ctx, quals, flavor, version, subsets, number,
     local = manifests == "coups"
 
     subsets = set([s for s in subsets.split(",") if s])
-
-    if name.endswith("_MANIFEST.txt"):
-        mtp = coups.manifest.parse_filename(name)
-    else:
-        mtp = coups.manifest.make(name, version, flavor, quals)
+    mtp = coups.manifest.make(name, version, flavor, quals)
 
     # who's
     theman = ctx.obj.qfirst(Manifest, **mtp._asdict())
+    if not theman:
+        sys.stderr.write(f'Unknown manifest: {mtp}')
+        return -1
     submans = coups.queries.subsets(ctx.obj.session, theman, number)
 
     if extras:

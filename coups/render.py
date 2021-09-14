@@ -46,6 +46,8 @@ less curl wget tar perl redhat-lsb-core zip unzip rsync
 xxhash xxhash-libs cyrus-sasl-devel libzstd libzstd-devel 
 mesa-libGL-devel mesa-libGLU-devel ftgl glew-devel gl2ps 
 libstdc++-devel gcc gcc-c++ libgcc.i686 glibc-devel.i686 libstdc++.i686 libffi-devel
+libXft libXpm libSM libX11
+libXext libXi libXrender libXt libXmu libAfterImage 
 """.split()
 
 def dockerfile_base(prefix=default_image_prefix,

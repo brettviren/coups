@@ -8,7 +8,6 @@ Utility functions
 # the terms of the GNU Affero General Public License.
 
 
-
 # eternal mixup due to spelling versions in two ways.
 def vunderify(v):
     '''

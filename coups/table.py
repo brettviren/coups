@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 '''
-Handle UPS table file
+Handle UPS table (and version) file
 '''
 
 # Copyright Brett Viren 2021.
 # This file is part of coups which is free software distributed under
 # the terms of the GNU Affero General Public License.
 
+from coups.util import vunderify, versionify
 import pyparsing as pp
 # print(f"pyparsing is version: {pp.__version__}")
 assert pp.__version__[0] == '3'
+
+ParseException = pp.ParseException
 
 def skip(lines):
     while lines:
@@ -26,6 +29,34 @@ def peek1stl(lines):
     if not parts:
         return ""
     return parts[0].lower()
+
+def read_version(lines):
+    skip(lines)
+    _,ftype = peek_setting(lines, key="file")
+    assert ftype.lower() == "version"
+    lines.pop(0)
+    skip(lines)
+
+    _,product = peek_setting(lines, key="product")
+    lines.pop(0)
+    skip(lines)
+
+    _,version = peek_setting(lines, key="version")
+    lines.pop(0)
+    skip(lines)
+
+    ret = dict(product=product, version=versionify(version))
+    flavors = list()
+    while lines:
+        key, val = peek_setting(lines)
+        lines.pop(0)
+        skip(lines)
+        if key.lower() == "flavor":
+            flavors.append(dict())
+        flavors[-1][key.lower()] = val
+    ret["flavors"] = flavors
+    return ret
+    
 
 def read_table(lines):
     skip(lines)
@@ -73,15 +104,19 @@ def peek_setting(lines, key=None):
     if not line:
         return
 
-    keyname = pp.Word(pp.alphas).set_name("key")
-    value = (pp.Word(pp.alphas) ^ pp.dbl_quoted_string).set_name("value")
-    setting = (keyname + "=" + value).set_name("setting")
+    k, v = [x.strip() for x in line.split("=",1)]
+    if v.startswith('"') and v.endswith('"'):
+        v = v[1:-1]
 
-    ret = setting.parse_string(line)
-    k,v= ret[0], ret[2]
-    if key:
-        assert key == k.lower()
-    skip(lines)
+    # keyname = pp.Word(pp.alphas).set_name("key")
+    # value = (pp.Word(pp.alphas) ^ pp.dbl_quoted_string).set_name("value")
+    # setting = (keyname + "=" + value).set_name("setting")
+    # ret = setting.parse_string(line)
+    # k,v= ret[0], ret[2]
+
+    if key and key.lower() != k.lower():
+        raise ValueError(f'key constraint failed {key} != {k}')
+
     return k,v
 
 def read_flavor(lines):

@@ -182,3 +182,23 @@ def package_products(package, version, full=True):
     '''
     return url_or_tail(product_url(package, version), full)
     
+
+def download_product(prod, todir="."):
+    '''
+    Download product tar file.
+    '''
+
+    if not os.path.exists(todir):
+        os.makedirs(todir)
+
+    purl = product_url(prod.name, prod.version)
+    furl = os.path.join(purl, prod.filename)
+    targ = os.path.join(todir, prod.filename)
+
+    with requests.get(furl, stream=True) as req:
+        req.raise_for_status()
+        with open(targ, 'wb') as fp:
+            for chunk in req.iter_content(chunk_size=8192): 
+                fp.write(chunk)
+    return targ
+

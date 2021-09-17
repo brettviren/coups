@@ -10,3 +10,10 @@
 __pycache__
 .direnv
 .envrc
+*.root
+*.tar.bz2
+*.fcl
+*.sif
+build*
+junk*
+*.out

@@ -11,6 +11,7 @@ The coups CLI.
 import os
 import sys
 import click
+import pathlib
 from collections import namedtuple
 
 import coups.manifest
@@ -889,6 +890,89 @@ def depend_graph(ctx, dfile):
     pos = nx.nx_agraph.graphviz_layout(g, prog="dot")
     nx.draw_networkx(g, pos)
     plt.savefig(dfile + ".png")
+
+
+@cli.command("get-products")
+@click.option("-o", "--outdir", default=".",
+              help="Ouptut directory to place downloaded product files")
+@click.option("-q", "--quals", default=None,
+              help="Colon-separate list of qualifiers")
+@click.option("-f", "--flavor", default=None,
+              help="Platform flavor")
+@click.option("-v", "--version", default=None,
+              help="Set the version")
+@click.argument("name")
+@click.pass_context
+def get_products(ctx, outdir, quals, flavor, version, name):
+    '''
+    Product product tar files for matching products from Scisoft
+    '''
+    from coups.store import Product
+    from coups.product import parse_filename
+    from coups.scisoft import download_product
+
+    if name.endswith(".tar.bz2"):
+        ptp = parse_filename(name)
+        pobj = ctx.obj.lookup(Product, **ptp._asdict())
+        pobjs = [pobj]
+    else:
+        pobjs = ctx.obj.qall(
+            Product, name=name, version=version,
+            flavor=flavor, quals=quals)
+    for prod in pobjs:
+        if os.path.exists(prod.filename):
+            sys.stderr.write(f"have {prod.filename}\n")
+            continue
+        fname = download_product(prod, outdir)
+        sys.stderr.write(f"save {fname}\n")
+        
+
+@cli.command("pack-products")
+@click.option("-z", "--repository",
+              multiple=True,
+              type=click.File(exists=True, file_okay=False, dir_okay=True, readable=True, path_type=pathlib.Path),
+              help="The UPS repository directory (aka 'UPS database')")
+@click.option("-o", "--outdir", default=".",
+              type=click.File(file_okay=False, dir_okay=True, writable=True, path_type=pathlib.Path),
+              help="Ouptut directory to place downloaded product files")
+@click.option("-v", "--version", default=None,
+              help="Set the version")
+@click.argument("name")
+@click.pass_context
+def pack_products(ctx, repository, outdir, version, name):
+    '''
+    Product product tar files for matching products from UPS 
+    '''
+    from coups.util import vunderify
+    from coups import ups
+
+    try:
+        prods = ups.find_product(name, version, paths=repository)
+    except ValueError as err:
+        sys.stderr.write(err + '\n')
+        return -1
+
+
+
+    if version:
+        vdirs = [prod / vunderify(version)]
+    else:
+        vdirs = [v for v in prod.glob('v*') if not v.endswith('.version')]
+    
+
+
+    if name.endswith(".tar.bz2"):
+        ptp = parse_filename(name)
+        pobj = ctx.obj.lookup(Product, **ptp._asdict())
+        pobjs = [pobj]
+    else:
+        pobjs = ctx.obj.qall(
+            Product, name=name, version=version,
+            flavor=flavor, quals=quals)
+
+    for prod in probjs:
+        
+
 
 
 def main():

@@ -35,6 +35,9 @@ _oscpu2flavor = {
     ("d18","x86_64"): "Darwin64bit+18",
     ("noarch","noarch"): "noarch",
     ("source","source"): "source",
+    ('NULL', 'NULL'): 'NULL',
+    ('', ''): '',
+    (None, None): None,
 }
 _flavor2os = {
     "Linux64bit+2.6-2.5": "slf5",
@@ -74,6 +77,12 @@ def oscpu2flavor(OS, CPU):
     except KeyError:
         raise ValueError(f"Unsupported OS:{OS}/CPU:{CPU}")
     return flavor
+
+def flavor2oscpu(flavor):
+    for maybe, flav in _oscpu2flavor.items():
+        if flav == flavor:
+            return maybe
+    raise ValueError(f'unknown flavor {flavor}')
 
 def flavor2os(flavor):
     '''

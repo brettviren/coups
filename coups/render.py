@@ -48,6 +48,16 @@ mesa-libGL-devel mesa-libGLU-devel ftgl glew-devel gl2ps
 libstdc++-devel gcc gcc-c++ libgcc.i686 glibc-devel.i686 libstdc++.i686 libffi-devel
 libXft libXpm libSM libX11
 libXext libXi libXrender libXt libXmu libAfterImage 
+openssl openssl-devel sqlite strace  krb5-workstation 
+osg-wn-client voms-clients-cpp-2.0.14-1.el6.x86_64 
+gdbm-devel zstd libcurl-devel
+subversion asciidoc bzip2-devel fontconfig-devel freetype-devel 
+ftgl-devel giflib-devel gl2ps-devel ncurses-devel openldap-devel 
+pcre2-devel readline-devel autoconf automake libtool lz4-devel swig 
+texinfo tcl-devel tk-devel xz-devel xmlto xxhash-devel
+libAfterImage-devel  libjpeg-turbo-devel libpng-devel
+libuuid-devel libXft-devel libXi-devel libXrender-devel libXt-devel
+libXpm-devel libXmu-devel perl-DBD-SQLite perl-ExtUtils-MakeMaker
 """.split()
 
 def dockerfile_base(prefix=default_image_prefix,
@@ -69,11 +79,15 @@ def dockerfile_base(prefix=default_image_prefix,
     dftext = f'''
 FROM {from_image}
 RUN \\
+    yum install -y https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest.noarch.rpm && \\
     yum -y install epel-release && \\
     yum -y install https://repo.ius.io/ius-release-el7.rpm && \\
     yum -y update && \\
     yum -y install {pkgs} && \\
     yum clean all
+RUN wget http://scisoft.fnal.gov/scisoft/bundles/tools/checkPrerequisites && \\
+    chmod +x checkPrerequisites && \\
+    ./checkPrerequisites
 '''
     return prefix+dfname, dftext
 

@@ -3,28 +3,35 @@
 
 * What is in the coups?
 
-The *coups* package provides tools to operate on information about
-UPS "products" and their groupings into "manifests".
+The *coups* package provides tools to query and perform operations on
+UPS "products" and sets of products called "manifests".
 
-The ~coups~ command can:
+With the ~coups~ command you can (or will be able to):
 
-- Download and store a manifest or a bundle of manifests to a local DB.
+- [X] Download and store a manifest or a bundle of manifests to a
+  local DB.
 
-- List products or manifests matching given identifiers.
+- [X] List products or manifests matching given identifiers.
 
-- List products that are in a given manifest.
+- [X] List products that are in a given manifest.
 
-- List manifests that provide a given package.
+- [X] List manifests that provide a given package.
 
-- Factor manifests into subsets defined by other manifests.
+- [X] Factor manifests into subsets defined by other manifests.
 
-- Discover inter-product dependencies and build a dependency tree
-  and from this generate manifests.
+- [X] Visualize a product-manifest dependency graph.
 
-- Render files and scripts to automate building of containers which
-  are layered according to manifest subsets.
+- [X] Render information into scripts to automate building of
+  containers which are layered according to manifest subsets.
 
-- Render graphs showing product/manifest relationships.
+- [X] Download product tar files or generate them from installed UPS
+  product directories.
+
+- [ ] Determine product-product dependency graph.
+
+- [ ] Generate manifest based on product-product dependencies.
+
+- [ ] Add container layers based on local sets of product tar files.
 
 * Just let me type something
 

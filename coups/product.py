@@ -15,31 +15,50 @@ from .unko import oscpu2flavor, flavor2os
 from .util import versionify
 from collections import namedtuple
 
+from .parsing import product as parse_product
+
 def partition_filename(fname):
     '''
-    Parse a product file name (or URL) into a Product tuple
+    Parse a product tar file name (or URL) into a Product tuple
+
+    A product tar file name is assumed to be of the form:
+
+    <name>-<version>[-<OS>-<CPU>[-<dquals>]|-noarch].tar.bz2
+
     '''
-    ext = '.tar.bz2'
-
     fname = os.path.basename(fname)
-    if not fname.endswith(ext):
-        raise ValueError(f"does not look like a product file: {fname}")
-    base = fname[:-len(ext)]
+    pp = parse_product.parse_string(fname).product
+    
+    name = pp.package
+    version = pp.version
+    
+    if 'flavor' in pp:
+        flavor = pp.flavor
+    else:
+        flavor = oscpu2flavor(pp.cpuos.os, pp.cpuos.cpu)
+    
 
-    name, version, rest = base.split("-", 2)
-    quals = ""
-    try:
-        _ = flavor2os(rest)
-        flavor = rest
-    except ValueError:
-        chunks = rest.split("-", 2)
-        OS = chunks.pop(0)
-        CPU = chunks.pop(0)
-        flavor = oscpu2flavor(OS,CPU) # hail mary
-        if chunks:
-            quals = "-".join(chunks)
-    if "-" in quals:
-        quals = quals.replace("-",":")
+    if 'quals' in pp:
+        quals = ':'.join([q for q in pp.quals if q != '-'])
+    else:
+        quals = ''
+
+
+    # parts = base.split("-")
+    # name, version, rest = base.split("-", 2)
+    # quals = ""
+    # try:
+    #     _ = flavor2os(rest)
+    #     flavor = rest
+    # except ValueError:
+    #     chunks = rest.split("-", 2)
+    #     OS = chunks.pop(0)
+    #     CPU = chunks.pop(0)
+    #     flavor = oscpu2flavor(OS,CPU) # hail mary
+    #     if chunks:
+    #         quals = "-".join(chunks)
+    # if "-" in quals:
+    #     quals = quals.replace("-",":")
     return name, version, flavor, quals
 
 def Product(name, version, flavor, quals, filename):
@@ -59,7 +78,6 @@ def Product(name, version, flavor, quals, filename):
 
     if not flavor:
         n,v,f,q = partition_filename(filename)
-        base = filename[:-len(".tar.bz2")]
         if not quals:
             quals = q
 

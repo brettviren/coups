@@ -278,6 +278,18 @@ def load_package(ctx, newer, versions, package, refresh):
         versions = set([v for v in versions.split(',') if v])
     load_one_package(ctx.obj, package, versions, newer, refresh)
 
+@cli.command("load-product")
+@click.argument("product")
+@click.pass_context
+def load_product(ctx, product):
+    '''
+    Load a product to DB based on file name
+    '''
+    from coups.product import parse_filename
+    from coups.store import Product
+    ptp = parse_filename(product)
+    print(ptp)
+    #ctx.obj.lookup(Product, **ptp._asdict())
 
 
 
@@ -930,10 +942,10 @@ def get_products(ctx, outdir, quals, flavor, version, name):
 @cli.command("pack-products")
 @click.option("-z", "--repository",
               multiple=True,
-              type=click.File(exists=True, file_okay=False, dir_okay=True, readable=True, path_type=pathlib.Path),
+              type=click.Path(exists=True, file_okay=False, dir_okay=True, readable=True, path_type=pathlib.Path),
               help="The UPS repository directory (aka 'UPS database')")
 @click.option("-o", "--outdir", default=".",
-              type=click.File(file_okay=False, dir_okay=True, writable=True, path_type=pathlib.Path),
+              type=click.Path(file_okay=False, dir_okay=True, writable=True, path_type=pathlib.Path),
               help="Ouptut directory to place downloaded product files")
 @click.option("-v", "--version", default=None,
               help="Set the version")
@@ -953,25 +965,8 @@ def pack_products(ctx, repository, outdir, version, name):
         return -1
 
 
-
-    if version:
-        vdirs = [prod / vunderify(version)]
-    else:
-        vdirs = [v for v in prod.glob('v*') if not v.endswith('.version')]
-    
-
-
-    if name.endswith(".tar.bz2"):
-        ptp = parse_filename(name)
-        pobj = ctx.obj.lookup(Product, **ptp._asdict())
-        pobjs = [pobj]
-    else:
-        pobjs = ctx.obj.qall(
-            Product, name=name, version=version,
-            flavor=flavor, quals=quals)
-
-    for prod in probjs:
-        
+    for prod in prods:
+        print(prod)
 
 
 

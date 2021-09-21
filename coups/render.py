@@ -10,9 +10,10 @@ Functions to render objects to strings
 from .util import vunderify
 from .unko import qual_types, flavor2os
 
-string = str
-representation = repr
-def manifest_line(prod):
+
+product_string = str
+product_representation = repr
+def product_manifest(prod):
     '''
     Render a product object to a manifest line.
     '''

@@ -117,7 +117,7 @@ def get_manifest(ctx, output, quals, flavor, version, name):
     if input is really in bad shape.
     '''
     import coups.manifest
-    from coups.render import manifest_line
+    from coups.render import product_manifest as render_meth
 
     if output == "-":
         output="/dev/stdout"
@@ -128,7 +128,7 @@ def get_manifest(ctx, output, quals, flavor, version, name):
     with open(output, "w") as fp:
         fp.write("# " + str(mtp) + "\n")
         for prod in prods:
-            fp.write(manifest_line(prod) + "\n")
+            fp.write(render_meth(prod) + "\n")
 
 
 def load_one_manifest(main, mtp, refresh):
@@ -420,7 +420,7 @@ def container(ctx, quals, flavor, version, subsets, number,
     '''
     from coups.store import Manifest
     from coups.render import dockerfile_base, dockerfile_manifest
-    from coups.render import manifest_line
+    from coups.render import product_manifest as render_meth
 
     if manifests == "local": manifests = "coups"
     if manifests == "coups" and context != "directory":
@@ -508,7 +508,7 @@ def container(ctx, quals, flavor, version, subsets, number,
             mfilename = os.path.join(ldir, one.filename)
             with open(mfilename, "w") as fp:
                 for p in one.products:
-                    fp.write(manifest_line(p) + '\n')
+                    fp.write(render_meth(p) + '\n')
     # inline
     else:
         for dfname, dftext in layers:
@@ -525,6 +525,10 @@ def container(ctx, quals, flavor, version, subsets, number,
 
 
 @cli.command("products")
+@click.option("-r", "--render",
+              default='string',
+              type=click.Choice(['string','repr','manifest']),
+              help="Render method")
 @click.option("-q", "--quals", default=None,
               help="Colon-separate list of qualifiers")
 @click.option("-f", "--flavor", default=None,
@@ -533,13 +537,16 @@ def container(ctx, quals, flavor, version, subsets, number,
               help="Set the version")
 @click.argument("name")
 @click.pass_context
-def products(ctx, quals, flavor, version, name):
+def products(ctx, render, quals, flavor, version, name):
     '''
     List matching products
     '''
+    import coups.render
+    render_meth = getattr(coups.render, f'product_{render}')
+
     for p in coups.queries.products(ctx.obj.session,
                                     name, version, flavor, quals):
-        print(repr(p))
+        print(render_meth(p))
 
 @cli.command("contains")
 @click.option("-q", "--quals", default=None,
@@ -561,9 +568,9 @@ def contains(ctx, quals, flavor, version, name):
             print('\t'+m.filename)
 
 @cli.command("manifests")
-@click.option("--products", default="",
-              type=click.Choice(["", "manifest_line", "string", "representation"]),
-              help="If products are to be printed, this sets the rendering function")
+@click.option("-r", "--render", default="string",
+              type=click.Choice(["manifest", "string", "representation"]),
+              help="Method to render a product to a string")
 @click.option("-q", "--quals", default=None,
               help="Colon-separate list of qualifiers")
 @click.option("-f", "--flavor", default=None,
@@ -572,13 +579,14 @@ def contains(ctx, quals, flavor, version, name):
               help="Set the version")
 @click.argument("name")
 @click.pass_context
-def manifests(ctx, products, quals, flavor, version, name):
+def manifests(ctx, render, quals, flavor, version, name):
     '''
     List matching manifests
     '''
     import coups.render
     from coups.manifest import wash_name
     from coups.store import Manifest
+    render_meth = getattr(coups.render, f'product_{render}')
 
     name,version,flavor,quals = wash_name(name,version,flavor,quals)
     kwds=dict(name=name)
@@ -592,11 +600,8 @@ def manifests(ctx, products, quals, flavor, version, name):
 
     for man in mans:
         print (man.filename)
-        if not products:
-            continue
-        render = getattr(coups.render, products)
         for prod in man.products:
-            print('\t'+render(prod))
+            print('\t'+render_meth(prod))
 
 
 @cli.command("subsets")
@@ -674,7 +679,7 @@ def manifest(ctx, output, quals, flavor, version, name):
     Output a manifest file from DB
     '''
     from coups.store import Manifest
-    from coups.render import manifest_line
+    from coups.render import product_manifest as render_meth
     mtp = coups.manifest.make(name, version, flavor, quals)
 
     man = ctx.obj.qfirst(Manifest, **mtp._asdict())
@@ -692,7 +697,7 @@ def manifest(ctx, output, quals, flavor, version, name):
         fp = open(output, "w")
 
     for p in man.products:
-        fp.write(manifest_line(p) + '\n')
+        fp.write(render_meth(p) + '\n')
     fp.flush()
     fp.close()
     
@@ -939,6 +944,47 @@ def get_products(ctx, outdir, quals, flavor, version, name):
         sys.stderr.write(f"save {fname}\n")
         
 
+@cli.command("find-products")
+@click.option("-r", "--render", default="string",
+              type=click.Choice(["manifest", "string", "representation","tarball"]),
+              help="Method to render a product to a string")
+@click.option("-z", "--repository",
+              multiple=True,
+              type=click.Path(exists=True, file_okay=False, dir_okay=True, readable=True, path_type=pathlib.Path),
+              help="The UPS repository directory (aka 'UPS database')")
+@click.option("-q", "--quals", default=None,
+              help="Colon-separate list of qualifiers")
+@click.option("-f", "--flavor", default=None,
+              help="Platform flavor")
+@click.option("-v", "--version", default=None,
+              help="Set the version")
+@click.argument("name")
+@click.pass_context
+def find_products(ctx, render, repository, quals, flavor, version, name):
+    '''
+    Find matching products in UPS 
+    '''
+    from coups.util import vunderify
+    from coups import ups
+    import coups.render
+
+    try:
+        vinfos = ups.find(repository, name, version, flavor, quals)
+    except ValueError as err:
+        sys.stderr.write(err + '\n')
+        return -1
+
+    def my_render(vinfo):
+        if render == 'tarball':
+            return ups.tarfilename(vinfo)
+
+        ptp = ups.product_tuple(vinfo)
+        meth = getattr(coups.render, f'product_{render}')
+        return meth(ptp)
+
+    for vinfo in vinfos:
+        print (my_render(vinfo))
+
 @cli.command("pack-products")
 @click.option("-z", "--repository",
               multiple=True,
@@ -947,11 +993,15 @@ def get_products(ctx, outdir, quals, flavor, version, name):
 @click.option("-o", "--outdir", default=".",
               type=click.Path(file_okay=False, dir_okay=True, writable=True, path_type=pathlib.Path),
               help="Ouptut directory to place downloaded product files")
+@click.option("-q", "--quals", default=None,
+              help="Colon-separate list of qualifiers")
+@click.option("-f", "--flavor", default=None,
+              help="Platform flavor")
 @click.option("-v", "--version", default=None,
               help="Set the version")
 @click.argument("name")
 @click.pass_context
-def pack_products(ctx, repository, outdir, version, name):
+def pack_products(ctx, repository, outdir, quals, flavor, version, name):
     '''
     Product product tar files for matching products from UPS 
     '''
@@ -959,14 +1009,20 @@ def pack_products(ctx, repository, outdir, version, name):
     from coups import ups
 
     try:
-        prods = ups.find_product(name, version, paths=repository)
+        prods = ups.find(repository, name, version, flavor, quals)
     except ValueError as err:
         sys.stderr.write(err + '\n')
         return -1
 
 
-    for prod in prods:
-        print(prod)
+    for path, prod in prods:
+        fname = coups.ups.tarball(prod['product'],
+                                  prod['version'],
+                                  prod['flavor'],
+                                  prod['qualifiers'],
+                                  paths=repository,
+                                  outdir=outdir)
+        print (f'{path} -> {fname}')
 
 
 

@@ -13,8 +13,12 @@ We *always* encode a "version" not a "vunder" but we may render to a
 from coups.unko import flavor2oscpu
 from coups.util import vunderify, versionify
 from coups.table import read_version, ParseException
+from coups.parsing import compiler_qual, other_qual, build_qual, software_qual
+
 from pathlib import Path
 import tarfile
+
+
 
 def resolve(name, paths):
     '''
@@ -92,11 +96,64 @@ def setify_quals(quals):
         ret.add(q)
     return ret
 
+
+def find(paths, name, version=None, flavor=None, quals=None):
+    '''
+    Find all products in repository paths.
+
+    If version given, reduce to matching, etc flavor, etc quals.
+    '''
+    version = versionify(version)
+    flavor = flavor or ''
+    quals = setify_quals(quals)
+    pdirs = resolve(name, paths)
+    # print(f'{len(pdirs)} directories for {name}')
+    vinfos = list()
+    for pdir in pdirs:
+        if version:
+            vinfos += find_product_version(pdir, version)
+        else:
+            vinfos += find_product_versions(pdir)
+    # print(f'{len(vinfos)} versions for {name}')
+    ret = list()
+    for vinfo in vinfos:
+        vpath, vdat = vinfo
+        for fdat in vdat['flavors']:
+            myf = fdat['flavor']
+            if myf == 'NULL': myf=''
+            if flavor and myf != flavor:
+                #print(f'flavor not match {myf} != {flavor}')
+                continue
+            qs = setify_quals(fdat['qualifiers'])
+            if quals and quals != qs:
+                #print (f'quals not match {qs} != {quals}')
+                continue
+            fdat['product'] = vdat['product']
+            fdat['version'] = vdat['version']
+            ret.append( (vpath, fdat) )
+    return ret
+
+
+def product_tuple(vinfo):
+    '''
+    Convert a vdat like returned by find() return as a product tuple
+    '''
+    from .product import Product
+    filename = tarfilename(vinfo)
+    vpath, vdat = vinfo
+    return Product(vdat['product'], vdat['version'],
+                   vdat.get('flavor', ''),
+                   vdat.get('qualifers', ''),
+                   filename)
+
+
 def select_version(name, version, flavor, quals, paths):
     '''
     Return a select version info
     '''
     version = versionify(version)
+    if not flavor or flavor == 'NULL':
+        flavor = ''
     quals = setify_quals(quals)
     pdirs = resolve(name, paths)
     if not pdirs:
@@ -120,11 +177,11 @@ def select_version(name, version, flavor, quals, paths):
                 myf = fdat['flavor']
                 if myf == 'NULL': myf=''
                 if myf != flavor:
-                    #print(f'flavor not match {myf} != {flavor}')
+                    # print(f'flavor not match {myf} != {flavor}')
                     continue
                 qs = setify_quals(fdat['qualifiers'])
                 if quals != qs:
-                    #print (f'quals not match {qs} != {quals}')
+                    # print (f'quals not match {qs} != {quals}')
                     continue
                 fdat['product'] =vdat['product']
                 fdat['version'] = vdat['version']
@@ -144,6 +201,83 @@ def base_subdir(path, paths):
             continue
     raise ValueError(f'unknown path: {path}')
 
+def dashquals(quals, isman=False):
+    '''
+    Given quals, return canonical dash order.
+
+    products: <compiler>[-<other>][-<build>]
+
+    manifests: [<software>-]<compiler>[-<other>][-<build>]
+    '''
+    if not quals:
+        return ''
+    if isinstance(quals, str):
+        quals = quals.split(":")
+    quals = [q for q in quals if q]
+    if len(quals) == 1:
+        return quals[0]
+
+    s=c=o=b=""
+    for q in quals:
+        try:
+            software_qual.parse_string(q)
+        except ParseException:
+            pass
+        else:
+            s=q
+            # print(f's={s}')
+            continue
+        try:
+            compiler_qual.parse_string(q)
+        except ParseException:
+            pass
+        else:
+            c=q
+            # print(f'c={c}')
+            continue
+        try:
+            build_qual.parse_string(q)
+        except ParseException:
+            pass
+        else:
+            b=q
+            # print(f'b={b}')
+            continue
+        try:
+            other_qual.parse_string(q)
+        except ParseException:
+            pass
+        else:
+            o=q
+            # print(f'o={o}')
+            continue
+    if isman:
+        got = [s, c, o, b]
+    else:
+        got = [c, s, o, b]
+    return '-'.join([q for q in got if q])
+
+def tarfilename(vinfo):
+    '''
+    Return name for a product tar file
+    '''
+    vpath, vdat = vinfo
+
+    flavor = vdat['flavor']
+
+    quals = dashquals(vdat.get('qualifiers',''))
+    if quals:
+        quals = '-' + quals
+
+    OS, CPU = flavor2oscpu(flavor)
+    name = vdat['product']
+    version = vdat['version']
+    if flavor in ("", "NULL"):
+        tfname = f'{name}-{version}.tar.bz2'
+    else:
+        tfname = f'{name}-{version}-{OS}-{CPU}{quals}.tar.bz2'
+    return tfname
+
 def tarball(name, version, flavor, quals=None, paths=(), outdir="."):
     '''
     Product a product tar file, return its path.
@@ -157,15 +291,11 @@ def tarball(name, version, flavor, quals=None, paths=(), outdir="."):
 
     tar_seeds.add(base_subdir(vpath, paths))
 
-    dashquals = ""
     flavor = vdat['flavor']
-    OS, CPU = flavor2oscpu(flavor)
 
     inst_dir = prod_dir = resolve(vdat['prod_dir'], paths)[0]
     if not vpath.name.endswith(".version"):
-        vdash = vpath.name.replace('_','-')
-        dashquals = vdash[len(flavor):]
-        inst_dir = prod_dir / vdash
+        inst_dir = prod_dir / vpath.name.replace('_','-')
 
     if not prod_dir.exists():
         raise ValueError(f"no prod dir {prod_dir}")
@@ -185,12 +315,8 @@ def tarball(name, version, flavor, quals=None, paths=(), outdir="."):
         raise ValueError(f"no table file {table_file}")
     #print(table_file)
 
-    print (tar_seeds)
-
-    if flavor in ("", "NULL"):
-        tfname = f'{name}-{version}.tar.bz2'
-    else:
-        tfname = f'{name}-{version}-{OS}-{CPU}{dashquals}.tar.bz2'
+    # print (tar_seeds)
+    tfname = tarfilename((vpath, vdat))
 
     tfpath = outdir / tfname
     if not tfpath.parent.exists():

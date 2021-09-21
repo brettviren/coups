@@ -18,6 +18,18 @@ assert __version__[0] == '3'
 # https://scisoft.fnal.gov/scisoft/bundles/tools/buildFW
 compiler_qual = Combine((Word("ec") + Word(nums)) ^ ("gcc" + Word(nums))).set_results_name("compiler")
 
+# Manifests have a "software" qual like "s123".
+software_qual = Combine(Word("s") + Word(nums)).set_results_name("software")
+
+# A build qual what mix of optimization or debug symbols are used
+build_qual = one_of("opt prof debug").set_results_name("build")
+
+# There is another type of qual which determines some major variant of
+# the software suite.  There is a wide variety including "py2" and
+# "py3" or "p###b".  It's hard to be both exaustive and rigorous.
+other_qual = Combine(("py" + Word(nums)) ^ (NotAny(compiler_qual + Literal("opt") + Literal ("prof") + Literal("debug") + software_qual) + Word(alphas, alphanums + '_'))).set_results_name("other")
+
+
 # An OS qual is a few letters in a fixed set plus a version.
 os_qual = Combine(one_of("slf sl u d") + Word(nums)).set_results_name("os")
 
@@ -28,15 +40,6 @@ cpu_qual = Literal("x86_64").set_results_name("cpu")
 
 # These two are often used together
 cpuos_qual = Combine(os_qual + '-' + cpu_qual).set_results_name("cpuos")
-
-# A build qual what mix of optimization or debug symbols are used
-build_qual = one_of("opt prof debug").set_results_name("build")
-
-# There is another type of qual which determines some major variant of
-# the software suite.  Often it is "s###" but there is a wide variety
-# including "py2" and "py3" or "p###b".  It's hard to be both
-# exaustive and rigorous.
-other_qual = Combine(("py" + Word(nums)) ^ (NotAny(build_qual) + Word(alphas, alphanums + '_'))).set_results_name("other")
 
 
 # A set of quals separated by dashes as seen in manifest file names or

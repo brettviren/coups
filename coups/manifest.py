@@ -29,7 +29,10 @@ def Manifest(name, version, flavor, quals, filename):
     if not flavor:
         raise ValueError("manifest requires a flavor")
     if not quals:
+        # Fixme: technically, not true. Source manifests are a thing, this shoudl support eg:
+        # https://scisoft.fnal.gov/scisoft/bundles/ifdh/v1_14_01/manifest/ifdh-1.14.01-source_MANIFEST.txt
         raise ValueError("manifest requires qualifiers")
+    
     
     if not isinstance(quals, str):
         quals = ":".join(quals)

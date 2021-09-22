@@ -11,15 +11,66 @@ We *always* encode a "version" not a "vunder" but we may render to a
 # the terms of the GNU Affero General Public License.
 
 import os
-from .unko import oscpu2flavor, flavor2os
+import sys
+from .platform import by_oscpu, by_flavor
 from .util import versionify
 from collections import namedtuple
-
+from .quals import dashed as dashed_quals
 from .parsing import product as parse_product
+
+# A product tuple. All elements string.  quals is :-separated ordered list if not empty.
+Product = namedtuple("Product", "name version flavor quals filename")
+
+def check(prod, noisy=False):
+    '''
+    Return true if product is self consistsent, false if consistent
+    except for file name.  Raise ValueError if any other inconsistency.
+    Note, filenames can not be always made consistent.
+    '''
+    if not prod.filename:
+        raise ValueError("product requires a filename")
+    n,v,f,q = partition_filename(prod.filename)
+    if n != prod.name:
+        raise ValueError(f'product name mismatch: have:{n} file:{prod.name}')
+    if v != prod.version:
+        raise ValueError(f'product version mismatch: have:{v} file:{prod.version}')
+    if f != prod.flavor:
+        raise ValueError(f'product flavor mismatch: have:{f} file:{prod.flavor}')
+    if q != prod.quals:
+        raise ValueError(f'product quals mismatch: have:{q} file:{prod.quals}')
+    
+    fn = make_filename(prod.name, prod.version, prod.flavor, prod.quals)
+    if fn != prod.filename:
+        if noisy:
+            sys.stderr.write(f"warning: product filename not reproduced.\n\thave:{prod.filename}\n\tmade:{fn}\n")
+        return False
+    return True
+    
+def make_filename(name, version, flavor, quals):
+    '''
+    Build canonical product filename.
+    '''
+    version = versionify(version)
+    if flavor in ("", "NULL"):
+        return f'{name}-{version}.tar.bz2'
+    plat = by_flavor(flavor)
+
+    if not plat.oses:
+        prefix = f'{name}-{version}-{flavor}'
+    else:
+        OS = plat.oses[0]
+        CPU = plat.cpu
+        prefix = f'{name}-{version}-{OS}-{CPU}'
+
+    quals = dashed_quals(quals)
+    if quals:
+        quals = '-' + quals
+    return f'{prefix}{quals}.tar.bz2'
+
 
 def partition_filename(fname):
     '''
-    Parse a product tar file name (or URL) into a Product tuple
+    Break a product filename into its parts.
 
     A product tar file name is assumed to be of the form:
 
@@ -35,57 +86,43 @@ def partition_filename(fname):
     if 'flavor' in pp:
         flavor = pp.flavor
     else:
-        flavor = oscpu2flavor(pp.cpuos.os, pp.cpuos.cpu)
+        plat = by_oscpu(pp.cpuos.os, pp.cpuos.cpu)
+        flavor = plat.flavor
     
-
     if 'quals' in pp:
         quals = ':'.join([q for q in pp.quals if q != '-'])
     else:
         quals = ''
 
-
-    # parts = base.split("-")
-    # name, version, rest = base.split("-", 2)
-    # quals = ""
-    # try:
-    #     _ = flavor2os(rest)
-    #     flavor = rest
-    # except ValueError:
-    #     chunks = rest.split("-", 2)
-    #     OS = chunks.pop(0)
-    #     CPU = chunks.pop(0)
-    #     flavor = oscpu2flavor(OS,CPU) # hail mary
-    #     if chunks:
-    #         quals = "-".join(chunks)
-    # if "-" in quals:
-    #     quals = quals.replace("-",":")
     return name, version, flavor, quals
 
-def Product(name, version, flavor, quals, filename):
+def make(name, version, flavor=None, quals=None, filename=None):
     '''
-    Create a product tuple ("ptp").
+    Create a product tuple ("ptp") with flexible args
 
-    This tries to apply validation so loves to throw.
+    - name :: the product name, aka "package"
+    - version :: a version or vunder
+    - quals :: a set of quals as :-separated string
+    - filename :: the tar filename, if none it will be generated
     '''
     version = versionify(version)
+
+    if flavor:
+        plat = by_flavor(flavor) # check that we know it
+    else:
+        flavor=''
+
+    # get into canoncial form and order
+    quals = dashed_quals(quals).replace('-', ':')
+
+    noisy = False
     if not filename:
-        # NEVER generate a product file name.  You will get it wrong.
-        raise ValueError("a product tar file must be supplied")
+        filename = make_filename(name, version, flavor, quals)
+        noisy = True
 
-    if quals:
-        if not isinstance(quals, str):
-            quals = ":".join([str(q) for q in quals])
-
-    if not flavor:
-        n,v,f,q = partition_filename(filename)
-        if not quals:
-            quals = q
-
-    if "-" in quals:
-        quals = quals.replace("-",":")
-
-    return namedtuple("Product", "name version flavor quals filename")(
-        name, version, flavor, quals, filename)
+    ptp = Product(name, version, flavor, quals, filename)
+    check(ptp, noisy)           # confirm consistency
+    return ptp
 
 
 def parse_filename(fname):
@@ -93,4 +130,4 @@ def parse_filename(fname):
     Parse a product file name (or URL) into a Product tuple
     '''
     name, version, flavor, quals = partition_filename(fname)
-    return Product(name, version, flavor, quals, fname)
+    return make(name, version, flavor, quals, fname)

@@ -201,62 +201,6 @@ def base_subdir(path, paths):
             continue
     raise ValueError(f'unknown path: {path}')
 
-def dashquals(quals, isman=False):
-    '''
-    Given quals, return canonical dash order.
-
-    products: <compiler>[-<other>][-<build>]
-
-    manifests: [<software>-]<compiler>[-<other>][-<build>]
-    '''
-    if not quals:
-        return ''
-    if isinstance(quals, str):
-        quals = quals.split(":")
-    quals = [q for q in quals if q]
-    if len(quals) == 1:
-        return quals[0]
-
-    s=c=o=b=""
-    for q in quals:
-        try:
-            software_qual.parse_string(q)
-        except ParseException:
-            pass
-        else:
-            s=q
-            # print(f's={s}')
-            continue
-        try:
-            compiler_qual.parse_string(q)
-        except ParseException:
-            pass
-        else:
-            c=q
-            # print(f'c={c}')
-            continue
-        try:
-            build_qual.parse_string(q)
-        except ParseException:
-            pass
-        else:
-            b=q
-            # print(f'b={b}')
-            continue
-        try:
-            other_qual.parse_string(q)
-        except ParseException:
-            pass
-        else:
-            o=q
-            # print(f'o={o}')
-            continue
-    if isman:
-        got = [s, c, o, b]
-    else:
-        got = [c, s, o, b]
-    return '-'.join([q for q in got if q])
-
 def tarfilename(vinfo):
     '''
     Return name for a product tar file

@@ -10,6 +10,7 @@ Handle parsing
 
 from pyparsing import *
 assert __version__[0] == '3'
+from pyparsing.exceptions import ParseException
 
 # qual_literals = ["e%d"%n for n in range(
 

@@ -10,10 +10,10 @@ We *always* encode a "version" not a "vunder" but we may render to a
 # This file is part of coups which is free software distributed under
 # the terms of the GNU Affero General Public License.
 
-from coups.unko import flavor2oscpu
+from coups.product import make as make_product
 from coups.util import vunderify, versionify
 from coups.table import read_version, ParseException
-from coups.parsing import compiler_qual, other_qual, build_qual, software_qual
+from coups.quals import dashed as dashed_quals
 
 from pathlib import Path
 import tarfile
@@ -134,17 +134,13 @@ def find(paths, name, version=None, flavor=None, quals=None):
     return ret
 
 
-def product_tuple(vinfo):
+def product_tuple(vdat):
     '''
     Convert a vdat like returned by find() return as a product tuple
     '''
-    from .product import Product
-    filename = tarfilename(vinfo)
-    vpath, vdat = vinfo
-    return Product(vdat['product'], vdat['version'],
-                   vdat.get('flavor', ''),
-                   vdat.get('qualifers', ''),
-                   filename)
+    return make_product(vdat['product'], vdat['version'],
+                        vdat.get('flavor', ''),
+                        vdat.get('qualifers', ''))
 
 
 def select_version(name, version, flavor, quals, paths):
@@ -209,7 +205,7 @@ def tarfilename(vinfo):
 
     flavor = vdat['flavor']
 
-    quals = dashquals(vdat.get('qualifiers',''))
+    quals = dashed_quals(vdat.get('qualifiers',''))
     if quals:
         quals = '-' + quals
 
@@ -229,13 +225,10 @@ def tarball(name, version, flavor, quals=None, paths=(), outdir="."):
     outdir = Path(outdir)
 
     tar_seeds = set()
-    
+
     vpath, vdat = select_version(name, version, flavor, quals, paths)
-    #print ('vpath',vpath)
-
     tar_seeds.add(base_subdir(vpath, paths))
-
-    flavor = vdat['flavor']
+    prod = product_tuple(vdat)
 
     inst_dir = prod_dir = resolve(vdat['prod_dir'], paths)[0]
     if not vpath.name.endswith(".version"):
@@ -260,9 +253,8 @@ def tarball(name, version, flavor, quals=None, paths=(), outdir="."):
     #print(table_file)
 
     # print (tar_seeds)
-    tfname = tarfilename((vpath, vdat))
 
-    tfpath = outdir / tfname
+    tfpath = outdir / prod.filename
     if not tfpath.parent.exists():
         os.makedirs(tfpath.parent)
 

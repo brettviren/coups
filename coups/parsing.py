@@ -75,7 +75,8 @@ Darwin64bit+16
 Darwin64bit+17
 Darwin64bit+18
 source
-noarch""").set_results_name("flavor")
+noarch
+NULL""").set_results_name("flavor")
 
 
 #version = delimited_list(Word(nums + 'p', alphanums), delim='.', combine=True).set_results_name("version")

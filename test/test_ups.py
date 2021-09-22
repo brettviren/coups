@@ -8,12 +8,13 @@ Test coups.ups
 # the terms of the GNU Affero General Public License.
 
 from coups import ups
+from coups.quals import dashed as dashed_quals
 
 def _do_test_quals(qualslist, isman=False):
     nam = "manifest" if isman else "product"
 
     for quals in qualslist:
-        qs = ups.dashquals(quals, isman)
+        qs = dashed_quals(quals, isman)
         want = quals.replace(":","-")
         print (f'{nam} {want} -> {qs}')
         assert want == qs

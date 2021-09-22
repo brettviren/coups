@@ -16,7 +16,7 @@ from .platform import by_oscpu, by_flavor
 from .util import versionify
 from collections import namedtuple
 from .quals import dashed as dashed_quals
-from .parsing import product as parse_product
+from .parsing import product as parse_product, ParseException
 
 # A product tuple. All elements string.  quals is :-separated ordered list if not empty.
 Product = namedtuple("Product", "name version flavor quals filename")
@@ -46,13 +46,13 @@ def check(prod, noisy=False):
         return False
     return True
     
-def make_filename(name, version, flavor, quals):
+def make_filename(name, version, flavor='', quals=''):
     '''
     Build canonical product filename.
     '''
     version = versionify(version)
-    if flavor in ("", "NULL"):
-        return f'{name}-{version}.tar.bz2'
+    if not flavor or flavor in ("NULL",):
+        return f'{name}-{version}-NULL.tar.bz2'
     plat = by_flavor(flavor)
 
     if not plat.oses:
@@ -78,7 +78,11 @@ def partition_filename(fname):
 
     '''
     fname = os.path.basename(fname)
-    pp = parse_product.parse_string(fname).product
+    try:
+        pp = parse_product.parse_string(fname).product
+    except ParseException:
+        sys.stderr.write(f'failed to parse filename: {fname}\n')
+        raise
     
     name = pp.package
     version = pp.version

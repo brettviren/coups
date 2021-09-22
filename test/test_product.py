@@ -19,6 +19,9 @@ def test_make_filenames():
         else:
             print (f'mismatch:\n\thave: {fn}\n\tmade: {fn2}')
 
+def test_make_filename_noarch():
+    fn = make_filename('kx509', '3.1.0')
+    print (fn)
 
 def test_filename_parse_one():
     fn = "boost-1.56.0-source.tar.bz2"

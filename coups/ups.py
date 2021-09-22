@@ -109,7 +109,7 @@ def product_tuple(fdat):
 
 def find_products(paths, name, version=None, flavor=None, quals=None):
     '''
-    Find all products in repository paths.
+    Find all products in repository paths return a list of product tuples
 
     If version given, reduce to matching, etc flavor, etc quals.
     '''
@@ -202,15 +202,15 @@ def _base_subdir(path, paths):
 
 
 
-def tarball(name, version, flavor, quals=None, paths=(), outdir="."):
+def tarball(prod, paths=(), outdir="."):
     '''
-    Product a product tar file, return its path.
+    Product a product tar file from a product tuple, return its path.
     '''
     outdir = Path(outdir)
 
     tar_seeds = set()
 
-    vpath, vdat = _select_version(name, version, flavor, quals, paths)
+    vpath, vdat = _select_version(prod.name, prod.version, prod.flavor, prod.quals, paths)
     tar_seeds.add(_base_subdir(vpath, paths))
     prod = product_tuple(vdat)
 
@@ -231,7 +231,7 @@ def tarball(name, version, flavor, quals=None, paths=(), outdir="."):
 
     tar_seeds.add(_base_subdir(ups_dir, paths))
 
-    table_file = ups_dir / ( name + ".table" )
+    table_file = ups_dir / ( prod.name + ".table" )
     if not table_file.exists():
         raise ValueError(f"no table file {table_file}")
     #print(table_file)

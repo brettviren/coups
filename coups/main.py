@@ -12,6 +12,7 @@ import sys
 from . import queries, graph
 from coups.store import *
 from sqlalchemy.exc import IntegrityError
+import tarfile
 
 class Coups:
 
@@ -291,3 +292,34 @@ class Coups:
             edges.update(self.edges_from_m(m, distance))
 
         return graph.from_edges(edges)
+
+    def pack_product(self, prod, paths=(), outdir='.'):
+        '''
+        Product a product tar file.
+        '''
+
+    def get_table_file(self, filename):
+        '''
+        Return text of table file found in tarfile.
+        '''
+        tf = tarfile.open(filename, "r:*")
+        for ti in tf.getmembers():
+            if ti.name.endswith(".table"):
+                return tf.extractfile(ti).read().decode()
+        raise ValueError(f'no UPS table file found in {filename}')
+
+    def product_dependencies(self, table):
+        '''
+        Return a list of product tuples as determined by UPS table
+        directives in "table" text.
+        '''
+
+    def pack_manifest(self, seed, paths=(), outdir='.'):
+        '''
+        Produce product tar file for seed and any it depends on.
+
+        This prefers to download product tar files from Scisoft but if
+        a required product is served there an attempt will be made to
+        repack from UPS installation areas found at "paths".
+        '''
+        

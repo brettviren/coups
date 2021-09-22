@@ -36,6 +36,10 @@ def product_filename(prod):
     return prod.filename
 
 
+#
+# what follows is kind of a mess
+#
+
 # name prefix for images our dockerfiles generate
 default_image_prefix = "brettviren/coups-"
 # which operating system to use for the base
@@ -95,6 +99,7 @@ RUN wget http://scisoft.fnal.gov/scisoft/bundles/tools/checkPrerequisites && \\
 '''
     return prefix+dfname, dftext
 
+
 def dockerfile_manifest(from_image, man,
                         prefix=default_image_prefix,
                         operating_system=default_operating_system,
@@ -103,7 +108,8 @@ def dockerfile_manifest(from_image, man,
     Return tuple (image name, Dockerfile text) for a manifest image
 
     If local is true then the Dockerfile text will assume the properly
-    named manifest file is in the build context.
+    named manifest file is in the build context.  Placing it there is
+    the responibility of the caller.
     '''
     flavor = str(man.flavor)
     plat = by_flavor(flavor)
@@ -145,5 +151,50 @@ RUN mkdir -p /products && \\
     curl https://scisoft.fnal.gov/scisoft/bundles/tools/pullProducts > pullProducts && \\
     chmod +x pullProducts && \\
     ./pullProducts {local_flag} -s /products {operating_system} {man.name}-{vunder} {qual_set} {build_spec} {stripcmd}
+'''
+    return dfname, dftext
+
+
+def docker_packages(from_image, man,
+                    prefix=default_image_prefix,
+                    operating_system=default_operating_system,
+                    strip=False):
+    '''
+    Render a docker context to build a container from a local manifest
+    and product tar files.
+
+    The Dockerfile text assumes that the tar files named by the
+    manifest will be placed in a subdirectory called "tarfiles/" in
+    the Dockerfile build context.  The caller is responsible for
+    placing the Dockerfile holding the returned text and the tar files
+    in that build context.
+    '''
+    flavor = str(man.flavor)
+    plat = by_flavor(flavor)
+
+    if operating_system not in plat.oses:
+        raise RuntimeError(f'Image/manifest OS mismatch: {operating_system} != {plat.oses} with flavor: {flavor}')
+
+    quals = ":".join([str(q) for q in man.quals])
+
+    stripcmd=striplab=""
+    if strip:
+        striplab="-strip"
+        # for some reason I can not figure out, the find command to
+        # remove source directories complains about them not existing,
+        # yet it actually succeeds.
+        stripcmd = "&& find /products -name '*.so' -print -exec strip {} \\; && find /products -name source -type d -exec rm -rf {} \\; || echo 'Ignore these errors'"
+
+
+    dfname = f'{man.version}-{operating_system}-{quals}{striplab}'
+    dfname = dfname.replace("+","-").replace(":","-").lower()
+    dfname = prefix + man.name + ':' + dfname
+
+    vunder = vunderify(man.version)
+    dftext = f'''
+FROM {from_image}
+LABEL bundle="{man.name}" version="{man.version}" flavor="{man.flavor}" quals={quals}
+COPY tarfiles /tarfiles
+RUN tar -C /products -xf /tarfiles/*.tar.bz2 && rm -rf /tarfiles && {stripcmd}
 '''
     return dfname, dftext

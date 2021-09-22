@@ -1,6 +1,54 @@
 #!/usr/bin/env python3
 '''
 Handle UPS table (and version) file
+
+# line oriented, case insensitive, implicitly blocked by keywords
+FILE = TABLE|VERSION
+PRODUCT=<name>
+VERSION=<vunder>
+# starts "flavor" block
+FLAVOR = <flavor>
+# can be empty
+QUALIFIERS = "foo:bar"
+ACTION = SETUP
+  # non-ACTION lines body of SETUP
+ACTION = OTHER
+  # non-ACTION lines body of OTHER
+#...
+# EOF
+
+Or, 
+
+File = table|version
+Product=<name>
+Version=<vunder>
+
+Group:
+
+Flavor = <name>
+Qualifiers = "..."
+Action = <name>
+  # commands
+Action = <name>
+  # commands
+
+Flavor = <name>
+Qualifiers = "..."
+Action = <name>
+  # commands
+Action = <name>
+  # commands
+
+Common: # applies to each action flavor in group
+
+Action = setup
+  # commands
+  exeActionRequired(<name-from-flavor-in-group>)
+Action = <name>
+  # commands
+  exeActionRequired(<name-from-flavor-in-group>)
+
+End: # of group
 '''
 
 # Copyright Brett Viren 2021.
@@ -11,8 +59,42 @@ from coups.util import vunderify, versionify
 import pyparsing as pp
 # print(f"pyparsing is version: {pp.__version__}")
 assert pp.__version__[0] == '3'
-
 ParseException = pp.ParseException
+
+Value = pp.Word(pp.alphas, pp.alphanums) ^ pp.dbl_quoted_string.set_parse_action(pp.remove_quotes)
+Vunder = pp.Word('v', pp.alphanums + '_')
+
+NL = pp.Suppress(pp.LineEnd())
+COMMENT = pp.Literal('#')
+FILE = pp.Suppress(pp.CaselessKeyword("file") + '=') + Value('file') + NL
+PRODUCT = pp.Suppress(pp.CaselessKeyword("product") + '=') + Value("product") + NL
+VUNDER = pp.Suppress(pp.CaselessKeyword("version") + "=") + Vunder("vunder") + NL
+Header = pp.Group(FILE + PRODUCT + pp.Opt(VUNDER)).ignore('#' + pp.restOfLine)
+
+
+FLAVOR = pp.Suppress(pp.CaselessKeyword("flavor") + '=') + Value('flavor') + NL
+QUALIFIERS = pp.Suppress(pp.CaselessKeyword("qualifiers") + '=') + pp.dbl_quoted_string('quals') + NL
+
+ACTION = pp.Suppress(pp.CaselessKeyword("action") + '=') + Value('action') + NL
+onearg = pp.Regex('[^),]+')
+ArgList = pp.delimited_list(onearg)
+COMMAND = pp.Group(Value.set_results_name("command") + pp.Suppress("(") + pp.ZeroOrMore(ArgList).set_results_name("arglist") + pp.Suppress(")") + NL)
+ActionBlock = pp.Group(ACTION + pp.OneOrMore(COMMAND).set_results_name("commands"))
+
+FlavorBlock_ = pp.Group(FLAVOR + QUALIFIERS + pp.ZeroOrMore(ActionBlock).set_results_name("actions"))
+FlavorBlock = FlavorBlock_.set_results_name("flavorblock")
+
+GROUP = pp.Suppress(pp.CaselessKeyword("group:") + NL)
+
+GroupBlock = GROUP + pp.ZeroOrMore(FlavorBlock_).set_results_name("flavorblocks")
+
+COMMON = pp.Suppress(pp.CaselessKeyword("common:") + NL)
+END = pp.Suppress(pp.CaselessKeyword("end:") + NL)
+
+CommonBlock = COMMON + pp.ZeroOrMore(ActionBlock).set_results_name("commonactions") + END
+
+TableFile = FILE + PRODUCT + GroupBlock + CommonBlock
+
 
 def skip(lines):
     while lines:
@@ -71,15 +153,22 @@ def read_table(lines):
     lines.pop(0)
     skip(lines)
 
-    assert peek1stl(lines) == "group:"
-    group = read_group(lines)
+    group = None
+    if peek1stl(lines) == "group:":
+        group = read_group(lines)
 
-    assert peek1stl(lines) == "common:"
-    common  = read_common(lines)
+    common = None
+    if peek1stl(lines) == "common:":
+        common  = read_common(lines)
 
-    assert len(lines) == 0
+    flavor = None
+    if peek1stl(lines) == "flavor:":
+        flavor = read_flavor(lines)
 
-    return product,group,common
+    if len(lines) != 0:
+        print(lines)
+
+    return product,group,common,flavor
 
 def read_group(lines):
 

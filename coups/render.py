@@ -8,8 +8,8 @@ Functions to render objects to strings
 # the terms of the GNU Affero General Public License.
 
 from .util import vunderify
-from .unko import qual_types, flavor2os
-
+from .quals import types as qual_types
+from .platform import by_flavor
 
 product_string = str
 product_representation = repr
@@ -32,6 +32,9 @@ def product_manifest(prod):
     if quals:
         ret += f'-q {quals}'
     return ret
+def product_filename(prod):
+    return prod.filename
+
 
 # name prefix for images our dockerfiles generate
 default_image_prefix = "brettviren/coups-"
@@ -103,14 +106,15 @@ def dockerfile_manifest(from_image, man,
     named manifest file is in the build context.
     '''
     flavor = str(man.flavor)
-    OS = flavor2os(flavor)
-    if OS != operating_system or operating_system != "slf7":
-        raise RuntimeError(f'Image/manifest OS mismatch: {operating_system} != {OS} with flavor: {flavor}')
+    plat = by_flavor(flavor)
+
+    if operating_system not in plat.oses:
+        raise RuntimeError(f'Image/manifest OS mismatch: {operating_system} != {plat.oses} with flavor: {flavor}')
 
     quals = ":".join([str(q) for q in man.quals])
     qt = qual_types(quals)
-    build_spec = "-".join(qt.build)
-    qual_set = "-".join(qt.other + qt.extra)
+    build_spec = "-".join(qt.b)
+    qual_set = "-".join([q for q in [qt.o, qt.c] if q])
 
     local_man=local_flag=""
     if local:

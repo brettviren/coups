@@ -32,7 +32,7 @@ def resolve(name, paths):
     return ret
 
 
-def find_product_version(pdir, version):
+def _find_product_version(pdir, version):
     '''
     Return list of version infos for the product at the path and
     specific version.
@@ -68,7 +68,7 @@ def find_product_version(pdir, version):
     return ret
 
 
-def find_product_versions(pdir):
+def _find_product_versions(pdir):
     '''
     Return list of version infos for the product at the path.
 
@@ -80,7 +80,7 @@ def find_product_versions(pdir):
     pdir = Path(pdir)
     ret = list()
     for dotv in pdir.glob("*.version"):
-        ret += find_product_version(pdir, versionify(dotv.stem))
+        ret += _find_product_version(pdir, versionify(dotv.stem))
     return ret
 
 def setify_quals(quals):
@@ -97,7 +97,17 @@ def setify_quals(quals):
     return ret
 
 
-def find(paths, name, version=None, flavor=None, quals=None):
+def product_tuple(fdat):
+    '''
+    Convert a flavor data structure to product tuple
+    '''
+    return make_product(fdat['product'],
+                        fdat['version'],
+                        fdat.get('flavor', ''),
+                        fdat.get('qualifiers', ''))
+
+
+def find_products(paths, name, version=None, flavor=None, quals=None):
     '''
     Find all products in repository paths.
 
@@ -111,9 +121,9 @@ def find(paths, name, version=None, flavor=None, quals=None):
     vinfos = list()
     for pdir in pdirs:
         if version:
-            vinfos += find_product_version(pdir, version)
+            vinfos += _find_product_version(pdir, version)
         else:
-            vinfos += find_product_versions(pdir)
+            vinfos += _find_product_versions(pdir)
     # print(f'{len(vinfos)} versions for {name}')
     ret = list()
     for vinfo in vinfos:
@@ -122,28 +132,21 @@ def find(paths, name, version=None, flavor=None, quals=None):
             myf = fdat['flavor']
             if myf == 'NULL': myf=''
             if flavor and myf != flavor:
-                #print(f'flavor not match {myf} != {flavor}')
+                # print(f'flavor not match {myf} != {flavor}')
                 continue
             qs = setify_quals(fdat['qualifiers'])
             if quals and quals != qs:
-                #print (f'quals not match {qs} != {quals}')
+                # print (f'quals not match {qs} != {quals}')
                 continue
             fdat['product'] = vdat['product']
             fdat['version'] = vdat['version']
-            ret.append( (vpath, fdat) )
+            # print(fdat)
+            ret.append(product_tuple(fdat))
     return ret
 
 
-def product_tuple(vdat):
-    '''
-    Convert a vdat like returned by find() return as a product tuple
-    '''
-    return make_product(vdat['product'], vdat['version'],
-                        vdat.get('flavor', ''),
-                        vdat.get('qualifers', ''))
 
-
-def select_version(name, version, flavor, quals, paths):
+def _select_version(name, version, flavor, quals, paths):
     '''
     Return a select version info
     '''
@@ -156,7 +159,7 @@ def select_version(name, version, flavor, quals, paths):
         raise ValueError(f'no package found {name}')
     for pdir in pdirs:
         # print(pdir)
-        vinfos = find_product_version(pdir, version)
+        vinfos = _find_product_version(pdir, version)
         if not vinfos:
             # print(f'no vinfo for {pdir} {version}')
             continue
@@ -184,7 +187,7 @@ def select_version(name, version, flavor, quals, paths):
                 return (vpath, fdat)
     raise ValueError(f'no match {name} {version} {flavor} {quals}')
 
-def base_subdir(path, paths):
+def _base_subdir(path, paths):
     '''
     Separate path to (base, subdir) where base is in paths.
     '''
@@ -197,26 +200,7 @@ def base_subdir(path, paths):
             continue
     raise ValueError(f'unknown path: {path}')
 
-def tarfilename(vinfo):
-    '''
-    Return name for a product tar file
-    '''
-    vpath, vdat = vinfo
 
-    flavor = vdat['flavor']
-
-    quals = dashed_quals(vdat.get('qualifiers',''))
-    if quals:
-        quals = '-' + quals
-
-    OS, CPU = flavor2oscpu(flavor)
-    name = vdat['product']
-    version = vdat['version']
-    if flavor in ("", "NULL"):
-        tfname = f'{name}-{version}.tar.bz2'
-    else:
-        tfname = f'{name}-{version}-{OS}-{CPU}{quals}.tar.bz2'
-    return tfname
 
 def tarball(name, version, flavor, quals=None, paths=(), outdir="."):
     '''
@@ -226,8 +210,8 @@ def tarball(name, version, flavor, quals=None, paths=(), outdir="."):
 
     tar_seeds = set()
 
-    vpath, vdat = select_version(name, version, flavor, quals, paths)
-    tar_seeds.add(base_subdir(vpath, paths))
+    vpath, vdat = _select_version(name, version, flavor, quals, paths)
+    tar_seeds.add(_base_subdir(vpath, paths))
     prod = product_tuple(vdat)
 
     inst_dir = prod_dir = resolve(vdat['prod_dir'], paths)[0]
@@ -239,13 +223,13 @@ def tarball(name, version, flavor, quals=None, paths=(), outdir="."):
     if not inst_dir.exists():
         raise ValueError(f"no inst dir {inst_dir}")
 
-    tar_seeds.add(base_subdir(inst_dir, paths))
+    tar_seeds.add(_base_subdir(inst_dir, paths))
 
     ups_dir = prod_dir / vdat['ups_dir']
     if not ups_dir.exists():
         raise ValueError(f"no ups dir {ups_dir}")
 
-    tar_seeds.add(base_subdir(ups_dir, paths))
+    tar_seeds.add(_base_subdir(ups_dir, paths))
 
     table_file = ups_dir / ( name + ".table" )
     if not table_file.exists():

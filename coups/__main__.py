@@ -946,7 +946,7 @@ def get_products(ctx, outdir, quals, flavor, version, name):
 
 @cli.command("find-products")
 @click.option("-r", "--render", default="string",
-              type=click.Choice(["manifest", "string", "representation","tarball"]),
+              type=click.Choice(["manifest", "string", "representation","filename"]),
               help="Method to render a product to a string")
 @click.option("-z", "--repository",
               multiple=True,
@@ -968,22 +968,10 @@ def find_products(ctx, render, repository, quals, flavor, version, name):
     from coups import ups
     import coups.render
 
-    try:
-        vinfos = ups.find(repository, name, version, flavor, quals)
-    except ValueError as err:
-        sys.stderr.write(err + '\n')
-        return -1
-
-    def my_render(vinfo):
-        if render == 'tarball':
-            return ups.tarfilename(vinfo)
-
-        ptp = ups.product_tuple(vinfo)
-        meth = getattr(coups.render, f'product_{render}')
-        return meth(ptp)
-
-    for vinfo in vinfos:
-        print (my_render(vinfo))
+    meth = getattr(coups.render, f'product_{render}')
+    prods = ups.find_products(repository, name, version, flavor, quals)
+    for prod in prods:
+        print (meth(prod))
 
 @cli.command("pack-products")
 @click.option("-z", "--repository",

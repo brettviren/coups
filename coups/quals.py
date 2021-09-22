@@ -37,12 +37,21 @@ def types(quals):
 
     for q in quals:
         try:
+            build_qual.parse_string(q)
+        except ParseException:
+            pass
+        else:
+            b = q
+            continue
+
+        try:
             software_qual.parse_string(q)
         except ParseException:
             pass
         else:
             s = q
             continue
+
         try:
             compiler_qual.parse_string(q)
         except ParseException:
@@ -50,13 +59,7 @@ def types(quals):
         else:
             c = q
             continue
-        try:
-            build_qual.parse_string(q)
-        except ParseException:
-            pass
-        else:
-            b = q
-            continue
+
         try:
             other_qual.parse_string(q)
         except ParseException:

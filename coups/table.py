@@ -28,39 +28,48 @@ ParseException = pp.ParseException
 
 DoubleQuotedString = pp.dbl_quoted_string.set_parse_action(pp.remove_quotes)
 
-Value = pp.Word(pp.alphas, pp.alphanums) ^ DoubleQuotedString
+Value = pp.Word(pp.alphas, pp.alphanums + "_") ^ DoubleQuotedString
 Vunder = pp.Word('v', pp.alphanums + '_')
 
 NL = pp.Suppress(pp.LineEnd())
+RestOfLine = pp.SkipTo(NL)
+
 COMMENT = pp.Literal('#')
 FILE = pp.Suppress(pp.CaselessKeyword("file") + '=') + Value('file') + NL
 PRODUCT = pp.Suppress(pp.CaselessKeyword("product") + '=') + Value("product") + NL
 VUNDER = pp.Suppress(pp.CaselessKeyword("version") + "=") + Vunder("vunder") + NL
 CHAIN = pp.Suppress(pp.CaselessKeyword("chain") + "=") + Value("chain") + NL
 
+GROUP = pp.Suppress(pp.CaselessKeyword("group:") + NL)
+COMMON = pp.Suppress(pp.CaselessKeyword("common:") + NL)
+END = pp.Suppress(pp.CaselessKeyword("end:") + NL)
+
 # just for testing
 Header = pp.Group(FILE + PRODUCT + pp.Opt(VUNDER)).set_results_name("header").ignore('#' + pp.restOfLine)
-
-RestOfLine = pp.SkipTo(NL)
 
 FLAVOR = pp.Suppress(pp.CaselessKeyword("flavor") + '=') + RestOfLine('flavor') + NL
 QUALIFIERS = pp.Suppress(pp.CaselessKeyword("qualifiers") + '=') + pp.Opt(DoubleQuotedString ^ '""').set_results_name('qualifiers') + NL
 
 ACTION = pp.Suppress(pp.CaselessKeyword("action") + '=') + Value('action') + NL
-onearg = pp.Regex('[^),]+')
-ArgList = pp.delimited_list(onearg)
-COMMAND = pp.Group(Value.set_results_name("command") + pp.Suppress("(") + pp.ZeroOrMore(ArgList).set_results_name("arglist") + pp.Suppress(")") + NL)
-ActionBlock = pp.Group(ACTION + pp.OneOrMore(COMMAND).set_results_name("commands"))
 
-ActionBlocks = pp.ZeroOrMore(ActionBlock).set_results_name("actions")
+# Command arguments can be almost arbitrary text, including
+# intervening ()'s. Many seem to expect to be evaluated as shell.  So,
+# here, we just punt and keep it a string
+ArgList = pp.Suppress("(") + pp.SkipTo(pp.Suppress(")") + NL).set_results_name("argstr")
 
-Keyname = (pp.NotAny("FLAVOR") + pp.Word(pp.alphas, pp.alphanums + '_')).set_results_name("key")
+#COMMAND = pp.Group(Value.set_results_name("command") + pp.Suppress("(") + pp.ZeroOrMore(ArgList).set_results_name("arglist") + pp.Suppress(")") + NL)
+COMMAND = Value.set_results_name("command") + ArgList
+ActionBlock = ACTION + pp.OneOrMore(COMMAND).set_results_name("commands")
+
+ActionBlocks = (pp.ZeroOrMore(ActionBlock)).set_results_name("actions")
+
+Keyname = pp.NotAny(ACTION) + pp.NotAny(FLAVOR) + pp.Word(pp.alphas, pp.alphanums + '_').set_results_name("key")
 Keyvalue = RestOfLine.set_results_name("val")
 Setting_ = pp.Group(Keyname + '=' + Keyvalue + NL)
 Setting = Setting_.set_results_name("setting")
 Settings = pp.OneOrMore(Setting_).set_results_name("settings")
 
-FlavorBlock_ = pp.Group(FLAVOR + QUALIFIERS + ActionBlocks)
+FlavorBlock_ = pp.Group(FLAVOR + QUALIFIERS + pp.Opt(Settings) + pp.Opt(ActionBlocks))
 FlavorBlock = FlavorBlock_.set_results_name("flavorblock")
 
 VersionBlock_ = pp.Group(FLAVOR + QUALIFIERS + Settings)
@@ -69,16 +78,11 @@ VersionBlock = VersionBlock_.set_results_name("versionblock")
 ChainBlock_ = pp.Group(FLAVOR + VUNDER + QUALIFIERS + Settings)
 ChainBlock = ChainBlock_.set_results_name("chainblock")
 
-GROUP = pp.Suppress(pp.CaselessKeyword("group:") + NL)
-
 GroupBlock = GROUP + pp.ZeroOrMore(FlavorBlock_).set_results_name("flavorblocks")
-
-COMMON = pp.Suppress(pp.CaselessKeyword("common:") + NL)
-END = pp.Suppress(pp.CaselessKeyword("end:") + NL)
-
 CommonBlock = COMMON + pp.ZeroOrMore(ActionBlock).set_results_name("commonactions") + END
 
-TableFile = FILE + PRODUCT + pp.Opt(VUNDER) + (GroupBlock + CommonBlock ^ FlavorBlock)
+# tantalizingly similar, but not 
+TableFile = (FILE + PRODUCT + pp.Opt(VUNDER) + (GroupBlock + CommonBlock ^ FlavorBlock)).ignore('#' + pp.restOfLine)
 VersionFile = FILE + PRODUCT + VUNDER + pp.ZeroOrMore(VersionBlock_).set_results_name("versionblocks")
 ChainFile = FILE + PRODUCT + CHAIN + pp.ZeroOrMore(ChainBlock_).set_results_name("chainblocks")
 
@@ -130,10 +134,14 @@ def simplify(tdat, version, flavor, quals):
     genact = {a['action'].lower():a['commands'] for a in found["actions"]}
     newacts = list()
     for ca in cas:
+        print(f'ca: {ca}')
         newcmds = list()
         for cmd in ca['commands']:
+            print(f'cmd: {cmd}')
             if cmd['command'].lower() in ('exeactionrequired', 'exeactionoptional'):
-                newcmds += genact[cmd['arglist'][0].lower()]
+                al = cmd['arglist']
+                print(al)
+                newcmds += genact[al[0].lower()]
                 continue
             newcmds.append(cmd)
         newacts.append(dict(action=ca['action'], commands=newcmds))

@@ -1193,7 +1193,7 @@ def pack_manifest(ctx, repository, outdir, quals, flavor, version, name):
     by following dependencies from a seed product.
     '''
     try:
-        seeds = ups.find_products(repository, name, version, flavor, quals)
+        seeds = ups.find_products(name, version, flavor, quals, repository)
     except ValueError as err:
         sys.stderr.write(err + '\n')
         return -1

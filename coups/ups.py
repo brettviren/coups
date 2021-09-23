@@ -10,26 +10,121 @@ We *always* encode a "version" not a "vunder" but we may render to a
 # This file is part of coups which is free software distributed under
 # the terms of the GNU Affero General Public License.
 
+import sys
 from coups.product import make as make_product
 from coups.util import vunderify, versionify
-from coups.table import read_version, ParseException
+from coups.table import TableFile, VersionFile, ChainFile, read_version, ParseException
 from coups.quals import dashed as dashed_quals
 
 from pathlib import Path
 import tarfile
 
 
+import os
 
-def resolve(name, paths):
+def env(varname, delim=None, default=""):
+    got = os.environ.get(varname, default)
+    if got is None:
+        return
+    if delim:
+        return got.split(delim)
+    return got
+
+
+def resolve(name, paths=None):
     '''
     Return list of pathlib.Path object by locating "name" in paths.
     '''
+    if not paths:
+        paths = env("PRODUCTS", ":")
+
     ret = list()
     for path in map(Path, paths):
         maybe = path / name
         if maybe.exists():
             ret.append(maybe)
     return ret
+
+
+def chain_file(name,  chain="current", repositories=None):
+    '''
+    Find chain file for named product.
+    '''
+    relfname = f'{name}/{chain}.chain'
+    paths = resolve(relfname, repositories)
+    if not paths:
+        raise ValueError(f'no file for chain {chain} for {name}')
+    return ChainFile.parse_string(paths[0].open().read())
+
+def version_file(name, version, repositories=None):
+    '''
+    Find a version "file" return its data.
+
+    Some "files" are directories of files.  They are combined.
+    '''
+    vunder = vunderify(version)
+
+    paths = resolve(f'{name}/{vunder}.version', repositories)
+    if not paths:
+        raise ValueError(f'no version file for {name} version {version}')
+    path = paths[0]
+    if path.is_dir():
+       files = path.glob("*")
+    else:
+        files = [path]
+
+    ret = None
+    for one in files:
+        vdat = VersionFile.parse_string(one.open().read())
+        if not ret:
+            ret = vdat
+            continue
+        ret['versionblocks'] += vdat['versionblocks']
+    return ret
+    
+
+def setting(settings, key):
+    '''
+    Return all values in settings block matching the key
+
+    Key is case insensitive but values are returned as-is.
+    '''
+    return [x['val'] for x in settings if x['key'].lower() == key.lower()]
+
+
+def table_file(name, version, repositories=None):
+    '''
+    Find a table file
+    '''
+    vunder = vunderify(version)
+
+    # some hard wired locations.
+    tries = [
+        f'{name}/{name}.table',
+        f'{name}/{vunder}.table',
+        f'{name}/{vunder}/ups/{name}.table']
+
+    found = None
+    for one in tries:
+        paths = resolve(one, repositories)
+        if paths:
+            found = paths[0]
+            break
+    if not found:
+        raise ValueError(f"no table file for {name} version {version}")
+
+    # # need a version file?
+    # vpath = version_file(name, version, repositories)
+    # # fixme: factor this into 
+    # ups_dir = setting(vpath['versionblocks'][0]['settings'], 'ups_dir')[0]
+    # prod_dir = setting(vpath['versionblocks'][0]['settings'], 'prod_dir')[0]
+    # table_file = setting(vpath['versionblocks'][0]['settings'], 'table_file')[0]
+
+    try:
+        return TableFile.parse_string(found.open().read())
+    except ParseException as err:
+        sys.stderr.write(str(found) + '\n')
+        raise
 
 
 def _find_product_version(pdir, version):
@@ -107,7 +202,7 @@ def product_tuple(fdat):
                         fdat.get('qualifiers', ''))
 
 
-def find_products(paths, name, version=None, flavor=None, quals=None):
+def find_products(name, version=None, flavor=None, quals=None, repositories=None):
     '''
     Find all products in repository paths return a list of product tuples
 
@@ -116,7 +211,7 @@ def find_products(paths, name, version=None, flavor=None, quals=None):
     version = versionify(version)
     flavor = flavor or ''
     quals = setify_quals(quals)
-    pdirs = resolve(name, paths)
+    pdirs = resolve(name, repositories)
     # print(f'{len(pdirs)} directories for {name}')
     vinfos = list()
     for pdir in pdirs:

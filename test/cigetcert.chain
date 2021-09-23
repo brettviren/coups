@@ -1,0 +1,53 @@
+FILE = chain
+PRODUCT = cigetcert
+CHAIN = current
+
+#*************************************************
+#
+FLAVOR = Linux64bit+2.6-2.5
+VERSION = v1_16_1
+QUALIFIERS = ""
+  DECLARER = products
+  DECLARED = 2016-10-18 20.20.39 GMT
+  MODIFIER = products
+  MODIFIED = 2016-10-18 20.20.39 GMT
+
+#*************************************************
+#
+FLAVOR = Linux64bit+3.10-2.17
+VERSION = v1_16_1
+QUALIFIERS = ""
+  DECLARER = products
+  DECLARED = 2016-10-18 20.20.57 GMT
+  MODIFIER = products
+  MODIFIED = 2016-10-18 20.20.57 GMT
+
+#*************************************************
+#
+FLAVOR = Darwin64bit
+VERSION = v1_16_2
+QUALIFIERS = ""
+  DECLARER = products
+  DECLARED = 2017-02-17 03.54.20 GMT
+  MODIFIER = products
+  MODIFIED = 2017-02-17 03.54.20 GMT
+
+#*************************************************
+#
+FLAVOR = Darwin64bit+14.5.0
+VERSION = v1_16_2
+QUALIFIERS = ""
+  DECLARER = products
+  DECLARED = 2017-11-15 16.57.32 GMT
+  MODIFIER = products
+  MODIFIED = 2017-11-15 16.57.32 GMT
+
+#*************************************************
+#
+FLAVOR = Linux64bit+2.6-2.12
+VERSION = v1_18_1
+QUALIFIERS = ""
+  DECLARER = products
+  DECLARED = 2019-04-17 22.53.40 GMT
+  MODIFIER = products
+  MODIFIED = 2019-04-17 22.53.40 GMT

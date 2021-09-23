@@ -10,6 +10,22 @@ Test parsing
 import pytest
 import coups.parsing as pp
 from pyparsing.exceptions import ParseException
+from pprint import pprint
+
+def test_arglist():
+    text='(WIRECELL_FQ_DIR, ( ${UPS_PROD_DIR}/${UPS_PROD_FLAVOR}-c7-prof ) )'
+    NL = pp.Suppress(pp.LineEnd())
+    AL = pp.Suppress("(") + pp.SkipTo(pp.Suppress(")") + NL).set_results_name("argstr")
+    got = AL.parse_string(text)
+    d = got.as_dict()
+    argstr = d['argstr']
+    assert isinstance(argstr, str)
+    argstr = argstr.strip()
+    assert argstr
+    assert not argstr.startswith("(")
+    assert argstr.endswith(")")
+    print(repr(got))
+    pprint(got.as_dict())
 
 
 def parse(method, string):

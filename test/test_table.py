@@ -3,6 +3,32 @@ from pathlib import Path
 from pprint import pprint
 import json
 
+def test_arglist():
+    text = '''
+(WIRECELL_FQ_DIR, ${UPS_PROD_DIR}/${UPS_PROD_FLAVOR}-c7-prof)
+'''
+    got = ArgList.parse_string(text)
+    print(repr(got))
+    pprint(got.as_dict())
+    
+def test_command():
+    text = '''
+    envSet (WIRECELL_FQ_DIR, ${UPS_PROD_DIR}/${UPS_PROD_FLAVOR}-c7-prof)
+'''
+    got = COMMAND.parse_string(text)
+    print(repr(got))
+    pprint(got.as_dict())
+    
+def test_action():
+    text = '''
+  action = test
+    envSet (WIRECELL_FQ_DIR, ${UPS_PROD_DIR}/${UPS_PROD_FLAVOR}-c7-prof)
+    envSet (WIRECELL_FQ_DIR2, ${UPS_PROD_DIR}2/${UPS_PROD_FLAVOR}-c7-prof)
+'''
+    got = ActionBlocks.parse_string(text)
+    print(repr(got))
+    pprint(got.as_dict())
+
 def test_header():
     text = '''
 # FILE=TABLE
@@ -16,6 +42,16 @@ PRODUCT=someprod
 
 '''
     got = Header.parse_string(text)
+    print(repr(got))
+    pprint(got.as_dict())
+
+def test_setting():
+    text = '''
+Foo = Bar
+Blah = "string"
+Meh =
+    '''
+    got = Settings.parse_string(text)
     print(repr(got))
     pprint(got.as_dict())
 
@@ -84,6 +120,54 @@ Common:
     got = GroupBlock.parse_string(text)
     pprint(got.as_dict())
     
+
+def test_mixed():
+    text = '''
+File=Table
+Product=ups
+#*************************************************
+# Starting Group definition
+Group:
+Flavor=ANY
+Qualifiers=""
+
+MAN_SOURCE_DIR=${UPS_PROD_DIR}/man/man
+CATMAN_SOURCE_DIR=${UPS_PROD_DIR}/man/catman
+
+Common:
+   Action=install_init_d
+     Execute(${UPS_UPS_DIR}/install_init_d.sh, UPS_ENV)
+
+   Action=current
+    #Execute( echo script is: && cat $BASH_SOURCE, NO_UPS_ENV)
+    Execute( echo "Doing ups current for SETUPS_DIR ${SETUPS_DIR}" , NO_UPS_ENV)
+    If( test -n "${SETUPS_DIR}" && test -w "${SETUPS_DIR}" )
+     #Execute( set -x , NO_UPS_ENV)
+     Execute( test -d ${SETUPS_DIR}/.old || mkdir ${SETUPS_DIR}/.old, NO_UPS_ENV)
+     Execute( mv -f  ${SETUPS_DIR}/setup ${SETUPS_DIR}/setups.* ${SETUPS_DIR}/.old 2>/dev/null	, NO_UPS_ENV)
+     Execute( cp ${UPS_UPS_DIR}/setups    ${SETUPS_DIR}	          , NO_UPS_ENV)
+     Execute( cp ${UPS_UPS_DIR}/setups.p* ${SETUPS_DIR}	          , NO_UPS_ENV)
+     Execute( cd ${SETUPS_DIR}					  , NO_UPS_ENV)
+     Execute( ln -s setups  ${SETUPS_DIR}/setups.sh		  , NO_UPS_ENV)
+     Execute( ln -s setups  ${SETUPS_DIR}/setups.csh		  , NO_UPS_ENV)
+     Execute( ln -s setups  ${SETUPS_DIR}/setup	  		  , NO_UPS_ENV)
+
+     # make sure there is a setups_layout scriptlet
+     Execute( test -r ${SETUPS_DIR}/setups_layout || (cd ${SETUPS_DIR} && sh ${UPS_UPS_DIR}/find_layout.sh), UPS_ENV)
+
+     # now execute it to update SETUPS_SAVE...
+     Execute( /bin/bash -c ". ${SETUPS_DIR}/setups" 		, NO_UPS_ENV)
+
+    Else()
+
+     Execute( test -n "${SETUPS_DIR}" && echo "\\$SETUPS_DIR=${SETUPS_DIR} not writable", NO_UPS_ENV)
+    EndIf( test -n "${SETUPS_DIR}" && test -w "${SETUPS_DIR}" )
+End:
+'''
+    got = TableFile.parse_string(text);
+    pprint(got.as_dict())
+
+
 def parse(What, fname):
     path = Path(__file__).parent / fname
     text = path.open().read()

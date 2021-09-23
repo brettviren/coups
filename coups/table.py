@@ -36,7 +36,10 @@ COMMENT = pp.Literal('#')
 FILE = pp.Suppress(pp.CaselessKeyword("file") + '=') + Value('file') + NL
 PRODUCT = pp.Suppress(pp.CaselessKeyword("product") + '=') + Value("product") + NL
 VUNDER = pp.Suppress(pp.CaselessKeyword("version") + "=") + Vunder("vunder") + NL
-Header = pp.Group(FILE + PRODUCT + pp.Opt(VUNDER)).ignore('#' + pp.restOfLine)
+CHAIN = pp.Suppress(pp.CaselessKeyword("chain") + "=") + Value("chain") + NL
+
+# just for testing
+Header = pp.Group(FILE + PRODUCT + pp.Opt(VUNDER)).set_results_name("header").ignore('#' + pp.restOfLine)
 
 RestOfLine = pp.SkipTo(NL)
 
@@ -51,15 +54,20 @@ ActionBlock = pp.Group(ACTION + pp.OneOrMore(COMMAND).set_results_name("commands
 
 ActionBlocks = pp.ZeroOrMore(ActionBlock).set_results_name("actions")
 
-Keyname = pp.Word(pp.alphas, pp.alphanums + '_').set_results_name("key")
+Keyname = (pp.NotAny("FLAVOR") + pp.Word(pp.alphas, pp.alphanums + '_')).set_results_name("key")
 Keyvalue = RestOfLine.set_results_name("val")
 Setting_ = pp.Group(Keyname + '=' + Keyvalue + NL)
 Setting = Setting_.set_results_name("setting")
 Settings = pp.OneOrMore(Setting_).set_results_name("settings")
 
-FlavorBlock_ = pp.Group(FLAVOR + QUALIFIERS + (Settings ^ ActionBlocks))
-
+FlavorBlock_ = pp.Group(FLAVOR + QUALIFIERS + ActionBlocks)
 FlavorBlock = FlavorBlock_.set_results_name("flavorblock")
+
+VersionBlock_ = pp.Group(FLAVOR + QUALIFIERS + Settings)
+VersionBlock = VersionBlock_.set_results_name("versionblock")
+
+ChainBlock_ = pp.Group(FLAVOR + VUNDER + QUALIFIERS + Settings)
+ChainBlock = ChainBlock_.set_results_name("chainblock")
 
 GROUP = pp.Suppress(pp.CaselessKeyword("group:") + NL)
 
@@ -71,7 +79,8 @@ END = pp.Suppress(pp.CaselessKeyword("end:") + NL)
 CommonBlock = COMMON + pp.ZeroOrMore(ActionBlock).set_results_name("commonactions") + END
 
 TableFile = FILE + PRODUCT + pp.Opt(VUNDER) + (GroupBlock + CommonBlock ^ FlavorBlock)
-
+VersionFile = FILE + PRODUCT + VUNDER + pp.ZeroOrMore(VersionBlock_).set_results_name("versionblocks")
+ChainFile = FILE + PRODUCT + CHAIN + pp.ZeroOrMore(ChainBlock_).set_results_name("chainblocks")
 
 
 

@@ -16,7 +16,8 @@ PRODUCT=someprod
 
 '''
     got = Header.parse_string(text)
-    print (f'got: {repr(got)}')
+    print(repr(got))
+    pprint(got.as_dict())
 
 def test_flavor_block():
     text = '''
@@ -40,7 +41,7 @@ Qualifiers = "c7:prof"
 
 '''
     got = FlavorBlock.parse_string(text)
-    print(json.dumps(got.as_dict(), indent=4))
+    pprint(got.as_dict())
 
 def test_group_block():
     text = '''
@@ -81,24 +82,24 @@ Qualifiers = "c7:debug"
 Common:
 '''
     got = GroupBlock.parse_string(text)
-    print(json.dumps(got.as_dict(), indent=4))
+    pprint(got.as_dict())
     
-def parse(fname):
+def parse(What, fname):
     path = Path(__file__).parent / fname
     text = path.open().read()
-    got = TableFile.parse_string(text)
+    got = What.parse_string(text)
     #print(json.dumps(got.as_dict(), indent=4))
     print(fname)
     pprint (got.as_dict())
     
 
 # I should figure out parameterized tests...
-def test_parse_afs_table() : parse("afs.table")
-def test_parse_afs_version() : parse("afs.version")
-def test_parse_kx509_table() : parse("kx509.table")
-def test_parse_kx509_version() : parse("kx509.version")
-def test_parse_wirecell_table() : parse("wirecell.table")
-def test_parse_wirecell_version() : parse("wirecell.version")
+def test_parse_afs_table() : parse(TableFile, "afs.table")
+def test_parse_afs_version() : parse(VersionFile, "afs.version")
+def test_parse_kx509_table() : parse(TableFile, "kx509.table")
+def test_parse_kx509_version() : parse(VersionFile,"kx509.version")
+def test_parse_wirecell_table() : parse(TableFile, "wirecell.table")
+def test_parse_wirecell_version() : parse(VersionFile, "wirecell.version")
 
 
 def simp(pkg):
@@ -124,3 +125,6 @@ def test_simp_afs() : simp("afs")
 def test_simp_kx509() : simp("kx509")
 def test_simp_wirecell() : simp("wirecell")
 
+
+def test_chain():
+    parse(ChainFile, "cigetcert.chain")

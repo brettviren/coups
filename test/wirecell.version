@@ -1,0 +1,15 @@
+FILE = version
+PRODUCT = wirecell
+VERSION = v0_16_0a
+
+#*************************************************
+#
+FLAVOR = Linux64bit+3.10-2.17
+QUALIFIERS = "e20:prof"
+  DECLARER = jenkins
+  DECLARED = 2021-08-25 18.13.03 GMT
+  MODIFIER = jenkins
+  MODIFIED = 2021-08-25 18.13.03 GMT
+  PROD_DIR = wirecell/v0_16_0a
+  UPS_DIR = ups
+  TABLE_FILE = wirecell.table

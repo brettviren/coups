@@ -1,0 +1,10 @@
+File=Table
+Product=afs
+
+Flavor=ANY
+Qualifiers=
+
+Action=setup
+     SetupEnv()
+     PathAppend(PRODUCTS,/afs/fnal.gov/ups/db)
+     PathAppend(PRODUCTS,/afs/fnal.gov/ups/db_alt)

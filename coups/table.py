@@ -1,54 +1,6 @@
 #!/usr/bin/env python3
 '''
 Handle UPS table (and version) file
-
-# line oriented, case insensitive, implicitly blocked by keywords
-FILE = TABLE|VERSION
-PRODUCT=<name>
-VERSION=<vunder>
-# starts "flavor" block
-FLAVOR = <flavor>
-# can be empty
-QUALIFIERS = "foo:bar"
-ACTION = SETUP
-  # non-ACTION lines body of SETUP
-ACTION = OTHER
-  # non-ACTION lines body of OTHER
-#...
-# EOF
-
-Or, 
-
-File = table|version
-Product=<name>
-Version=<vunder>
-
-Group:
-
-Flavor = <name>
-Qualifiers = "..."
-Action = <name>
-  # commands
-Action = <name>
-  # commands
-
-Flavor = <name>
-Qualifiers = "..."
-Action = <name>
-  # commands
-Action = <name>
-  # commands
-
-Common: # applies to each action flavor in group
-
-Action = setup
-  # commands
-  exeActionRequired(<name-from-flavor-in-group>)
-Action = <name>
-  # commands
-  exeActionRequired(<name-from-flavor-in-group>)
-
-End: # of group
 '''
 
 # Copyright Brett Viren 2021.
@@ -61,7 +13,22 @@ import pyparsing as pp
 assert pp.__version__[0] == '3'
 ParseException = pp.ParseException
 
-Value = pp.Word(pp.alphas, pp.alphanums) ^ pp.dbl_quoted_string.set_parse_action(pp.remove_quotes)
+
+# Describe table and version files.  This description is determined
+# emperically by looking at a sample of in-use files and thus may not
+# capture all variants.  It does capture:
+#
+# - "old" style table file with a single flavor both with and without actions.
+#
+# - "new" style table files with group:/common:/end:
+#
+# - version files be they named like <pakcage>.version or
+#   <package>.version/<flavor>_<quals>.  The two seem the same
+#   internally.
+
+DoubleQuotedString = pp.dbl_quoted_string.set_parse_action(pp.remove_quotes)
+
+Value = pp.Word(pp.alphas, pp.alphanums) ^ DoubleQuotedString
 Vunder = pp.Word('v', pp.alphanums + '_')
 
 NL = pp.Suppress(pp.LineEnd())
@@ -71,9 +38,10 @@ PRODUCT = pp.Suppress(pp.CaselessKeyword("product") + '=') + Value("product") + 
 VUNDER = pp.Suppress(pp.CaselessKeyword("version") + "=") + Vunder("vunder") + NL
 Header = pp.Group(FILE + PRODUCT + pp.Opt(VUNDER)).ignore('#' + pp.restOfLine)
 
+RestOfLine = pp.SkipTo(NL)
 
-FLAVOR = pp.Suppress(pp.CaselessKeyword("flavor") + '=') + Value('flavor') + NL
-QUALIFIERS = pp.Suppress(pp.CaselessKeyword("qualifiers") + '=') + pp.dbl_quoted_string('quals') + NL
+FLAVOR = pp.Suppress(pp.CaselessKeyword("flavor") + '=') + RestOfLine('flavor') + NL
+QUALIFIERS = pp.Suppress(pp.CaselessKeyword("qualifiers") + '=') + pp.Opt(DoubleQuotedString ^ '""').set_results_name('qualifiers') + NL
 
 ACTION = pp.Suppress(pp.CaselessKeyword("action") + '=') + Value('action') + NL
 onearg = pp.Regex('[^),]+')
@@ -81,7 +49,16 @@ ArgList = pp.delimited_list(onearg)
 COMMAND = pp.Group(Value.set_results_name("command") + pp.Suppress("(") + pp.ZeroOrMore(ArgList).set_results_name("arglist") + pp.Suppress(")") + NL)
 ActionBlock = pp.Group(ACTION + pp.OneOrMore(COMMAND).set_results_name("commands"))
 
-FlavorBlock_ = pp.Group(FLAVOR + QUALIFIERS + pp.ZeroOrMore(ActionBlock).set_results_name("actions"))
+ActionBlocks = pp.ZeroOrMore(ActionBlock).set_results_name("actions")
+
+Keyname = pp.Word(pp.alphas, pp.alphanums + '_').set_results_name("key")
+Keyvalue = RestOfLine.set_results_name("val")
+Setting_ = pp.Group(Keyname + '=' + Keyvalue + NL)
+Setting = Setting_.set_results_name("setting")
+Settings = pp.OneOrMore(Setting_).set_results_name("settings")
+
+FlavorBlock_ = pp.Group(FLAVOR + QUALIFIERS + (Settings ^ ActionBlocks))
+
 FlavorBlock = FlavorBlock_.set_results_name("flavorblock")
 
 GROUP = pp.Suppress(pp.CaselessKeyword("group:") + NL)
@@ -93,8 +70,105 @@ END = pp.Suppress(pp.CaselessKeyword("end:") + NL)
 
 CommonBlock = COMMON + pp.ZeroOrMore(ActionBlock).set_results_name("commonactions") + END
 
-TableFile = FILE + PRODUCT + GroupBlock + CommonBlock
+TableFile = FILE + PRODUCT + pp.Opt(VUNDER) + (GroupBlock + CommonBlock ^ FlavorBlock)
 
+
+
+
+def simplify(tdat, version, flavor, quals):
+    '''
+    Return a subset of tdat based on version, flavor and quals.
+
+    For "old" table files, this will assure version, flavor and quals
+    are in tdat and return it.
+
+    For "new" table files, this will produce an "old" style tdat and
+    use flavor and quals to determine which in "Group:" to apply to
+    "Common:".
+
+    The tdat is as returned by TableFile.parse_string()
+    '''
+
+    # a version file means the table need not carry a vunder
+    tdat['vunder'] = vunderify(version)
+
+    if 'flavorblock' in tdat:   # old style
+        fb = tdat['flavorblock']
+        fb['flavor'] = flavor
+        fb['qualifiers'] = quals               
+        return tdat
+
+    # new style with group:/common:/end:
+
+    # The main need for a version file here is to supply some things
+    # which table file may (or not) leave unspecified.
+
+    # remove these and will replace a flavorblock
+    cas = tdat.pop("commonactions")
+    fbs = tdat.pop("flavorblocks")
+
+    # must construct a singular 'flavorblock'
+    found=None
+    for fb in fbs:
+        if fb["qualifiers"] != quals: # fixme: order?
+            continue
+        if fb["flavor"] == 'ANY' or fb["flavor"] == flavor:
+            found=fb
+            break
+    if not found:
+        raise ValueError(f"No match for flavor={flavor} quals={quals}")
+
+    genact = {a['action'].lower():a['commands'] for a in found["actions"]}
+    newacts = list()
+    for ca in cas:
+        newcmds = list()
+        for cmd in ca['commands']:
+            if cmd['command'].lower == 'exeactionrequired':
+                newcmds += genact[cmd['arglist]'][0].lower()]
+                continue
+            newcmds.append(cmd)
+        newacts.append(dict(action=ca['action'], commands=newcmds))
+    tdat["flavorblock"] = dict(actions=newacts, flavor=flavor, qualifiers=quals)
+    return tdat
+
+    
+
+def dependencies(tdat, vdat=None):
+    '''
+    Return dependency information.
+
+    - tdat :: table file data structure
+
+    - vdat :: version file data structure
+
+    Return (prod, [required], [optional])
+
+    "prod" and elements of the two lists are product tuple objects.
+
+    Most "modern" table files do not provide version informaiton
+
+    
+a dict from TableFile.parse_string(table_text).as_dict()
+
+    If "version" is provided it will be baked into "prod".  O.w. any
+    version found in the table file will be used.  Note: most table
+    files do not include a version.
+
+    Table does not necessarily include a version.  To bake a version
+    into "prod", pass it
+    '''
+
+
+
+
+
+
+
+
+
+
+##########
+# old parsing below.  fixme: need to purge this
 
 def skip(lines):
     while lines:

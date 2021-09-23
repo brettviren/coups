@@ -310,9 +310,22 @@ class Coups:
 
     def product_dependencies(self, table):
         '''
-        Return a list of product tuples as determined by UPS table
-        directives in "table" text.
+        Return a list of tuples [(prod, deps)].
+
+        Each element in the list represents the information one flavor
+        block of the table.
+
+        "prod" is a product tuple object representing the flavored
+        product itself
+
+        "deps" is a list of "dependency" objects that give a product
+        tuple of a dependency and indication if it is required or
+        optional.
         '''
+        from coups.table import TableFile
+        got = TableFile.parse_string(text)
+        .....
+
 
     def pack_manifest(self, seed, paths=(), outdir='.'):
         '''

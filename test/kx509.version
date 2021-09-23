@@ -1,0 +1,15 @@
+FILE = version
+PRODUCT = kx509
+VERSION = v3_1_1
+
+#*************************************************
+#
+FLAVOR = NULL
+QUALIFIERS = ""
+  DECLARER = products
+  DECLARED = 2018-03-01 19.48.53 GMT
+  MODIFIER = products
+  MODIFIED = 2018-03-01 19.48.53 GMT
+  PROD_DIR = kx509/v3_1_1/NULL
+  UPS_DIR = ups
+  TABLE_FILE = v3_1_1.table

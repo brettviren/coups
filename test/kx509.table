@@ -1,0 +1,20 @@
+FILE=TABLE 
+PRODUCT=kx509
+VERSION=v3_1_1
+# 
+#--------------------- 
+FLAVOR = NULL
+QUALIFIERS = "" 
+ 
+ACTION=SETUP 
+    setupEnv() 
+    setupRequired(cigetcert)
+    pathPrepend(PATH, ${UPS_PROD_DIR}/bin, :) 
+    # a ../ in ${UPS_PROD_DIR} confuses man, remove it with pwd
+    pathPrepend(MANPATH, `cd ${UPS_PROD_DIR};pwd`/man) 
+ACTION=BUILD
+    Execute(cd ${UPS_PROD_DIR} && ups/build, NO_UPS_ENV)
+ACTION=RELEASE
+    Execute(cd ${UPS_PROD_DIR} && ups/release, NO_UPS_ENV)
+ACTION=UNRELEASE
+    Execute(cd ${UPS_PROD_DIR} && ups/unrelease, NO_UPS_ENV)

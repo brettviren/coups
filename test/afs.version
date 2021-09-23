@@ -1,0 +1,13 @@
+FILE = version
+PRODUCT = afs
+VERSION = v1_0
+
+#*************************************************
+#
+FLAVOR = NULL
+QUALIFIERS = ""
+  DECLARER = products
+  DECLARED = 2013-04-05 19.20.32 GMT
+  MODIFIER = products
+  MODIFIED = 2013-04-05 19.20.32 GMT
+  TABLE_FILE = v1_0.table

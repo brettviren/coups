@@ -1,5 +1,6 @@
 from coups.table import *
 from pathlib import Path
+from pprint import pprint
 import json
 
 def test_header():
@@ -82,9 +83,44 @@ Common:
     got = GroupBlock.parse_string(text)
     print(json.dumps(got.as_dict(), indent=4))
     
-def test_new_table():
-    path = Path(__file__).parent / "wirecell.table"
+def parse(fname):
+    path = Path(__file__).parent / fname
     text = path.open().read()
     got = TableFile.parse_string(text)
-    print(json.dumps(got.as_dict(), indent=4))
+    #print(json.dumps(got.as_dict(), indent=4))
+    print(fname)
+    pprint (got.as_dict())
     
+
+# I should figure out parameterized tests...
+def test_parse_afs_table() : parse("afs.table")
+def test_parse_afs_version() : parse("afs.version")
+def test_parse_kx509_table() : parse("kx509.table")
+def test_parse_kx509_version() : parse("kx509.version")
+def test_parse_wirecell_table() : parse("wirecell.table")
+def test_parse_wirecell_version() : parse("wirecell.version")
+
+
+def simp(pkg):
+    tpath = Path(__file__).parent / f'{pkg}.table'
+    vpath = Path(__file__).parent / f'{pkg}.version'
+
+    tdat = TableFile.parse_string(tpath.open().read()).as_dict()
+    vdat = TableFile.parse_string(vpath.open().read()).as_dict()
+    version = versionify(vdat['vunder'])
+    fdat = vdat['flavorblock']
+    flavor = fdat['flavor']
+    quals = fdat['qualifiers']
+
+    tdat2 = simplify(tdat, version, flavor, quals)
+    assert tdat2["file"].lower() == "table"
+    assert "vunder" in tdat2
+    fb = tdat2["flavorblock"]
+    pprint(tdat2)
+    assert fb["flavor"] == flavor
+    assert fb["qualifiers"] == quals
+
+def test_simp_afs() : simp("afs")
+def test_simp_kx509() : simp("kx509")
+def test_simp_wirecell() : simp("wirecell")
+

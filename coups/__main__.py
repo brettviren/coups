@@ -1212,10 +1212,18 @@ def tarfile_dependencies(ctx, tarfile):
     '''
     Print dependencies expressed by table file in product tar files
     '''
+    from coups.product import parse_filename
+    seed = parse_filename(tarfile)
     text = ctx.obj.get_table_file(tarfile)
-    from coups.table import read_table
-    got = read_table(text.split('\n'))
-    print(got)
+    from coups.table import TableFile, simplify
+    tdat = TableFile.parse_string(text)
+    tdat = simplify(tdat, seed.version, seed.flavor, seed.quals)
+    seed2, deps = ctx.obj.product_dependencies(tdat)
+    print(seed)
+    print(seed2)
+    for dep in deps:
+        print(dep)
+
 
 def main():
     cli(obj=None)

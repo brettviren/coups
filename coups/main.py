@@ -308,24 +308,56 @@ class Coups:
                 return tf.extractfile(ti).read().decode()
         raise ValueError(f'no UPS table file found in {filename}')
 
-    def product_dependencies(self, table):
+    def product_dependencies(self, tdat):
         '''
-        Return a list of tuples [(prod, deps)].
+        Return a tuple (seed, deps) from a parsed table data.
 
         Each element in the list represents the information one flavor
         block of the table.
 
-        "prod" is a product tuple object representing the flavored
+        "seed" is a product tuple object representing the flavored
         product itself
 
         "deps" is a list of "dependency" objects that give a product
         tuple of a dependency and indication if it is required or
         optional.
-        '''
-        from coups.table import TableFile
-        got = TableFile.parse_string(text)
-        .....
 
+        Note, the tdat should be in "old" or "simple" form.  
+        See coups.table.simplify()
+        '''
+        from coups.product import make as make_product
+        from coups.util import versionify
+        name = tdat['product']
+        version = versionify(tdat['vunder'])
+        fdat = tdat['flavorblock']
+        flavor = fdat['flavor']
+        quals = fdat['qualifiers']
+        seed = make_product(name, version, flavor, quals)
+        deps = list()
+        for act in tdat['flavorblock']['actions']:
+            if act['action'].lower() != 'setup':
+                continue
+            for cmd in act['commands']:
+                if cmd['command'].lower() not in ("setuprequired","setupoptional"):
+                    continue
+                al = cmd['arglist']
+                parts = al[0].split() # fixme: this should added to parser
+                n = parts.pop(0)
+                v=q=""
+                if parts:
+                    v = parts.pop(0)
+                else:
+                    # fscking indirection to current.chain
+                    sys.stderr.write(f'no version, ignoring dependency for {n}! (need chain indirection support)')
+                    continue
+                if parts:
+                    rest = ''.join(parts)
+                    assert rest.startswith("-q")
+                    q = rest[2:].replace("+","").strip()
+                # fixme: is it really true that flavor is common and never specified with a -f?
+                dep = make_product(n, v, flavor, q)
+                deps.append(dep)
+        return (seed, deps)
 
     def pack_manifest(self, seed, paths=(), outdir='.'):
         '''

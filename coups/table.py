@@ -123,8 +123,8 @@ def simplify(tdat, version, flavor, quals):
     for ca in cas:
         newcmds = list()
         for cmd in ca['commands']:
-            if cmd['command'].lower == 'exeactionrequired':
-                newcmds += genact[cmd['arglist]'][0].lower()]
+            if cmd['command'].lower() in ('exeactionrequired', 'exeactionoptional'):
+                newcmds += genact[cmd['arglist'][0].lower()]
                 continue
             newcmds.append(cmd)
         newacts.append(dict(action=ca['action'], commands=newcmds))

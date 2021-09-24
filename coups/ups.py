@@ -49,24 +49,49 @@ def resolve(name, paths=None):
 def chain_file(name,  chain="current", repositories=None):
     '''
     Find chain file for named product.
+
+    A chain "file" associates (name,flavor)->(version,qualifers)
+
+    The '.chain' "file" may actually be a directory of chain files.
+    When encountered they are combined.
+
+    Return a parsed ChainFile as a dictionary.
     '''
     relfname = f'{name}/{chain}.chain'
     paths = resolve(relfname, repositories)
     if not paths:
         raise ValueError(f'no file for chain {chain} for {name}')
-    return ChainFile.parse_string(paths[0].open().read())
+    path = paths[0]
+    if path.is_dir():
+        files = path.glob("*")
+    else:
+        files = [path]
+
+    ret = None
+    for one in files:
+        cdat = ChainFile.parse_string(one.open().read()).as_dict()
+        if not ret:
+            ret = cdat
+            continue
+        ret['chainblocks'] += cdat['chainblocks']
+    return ret
+
 
 def version_file(name, version, repositories=None):
     '''
     Find a version "file" return its data.
 
     Some "files" are directories of files.  They are combined.
+
+    Return a parsed VersionFile as a dictionary.
     '''
     vunder = vunderify(version)
 
     paths = resolve(f'{name}/{vunder}.version', repositories)
     if not paths:
         raise ValueError(f'no version file for {name} version {version}')
+    # print(paths)
+
     path = paths[0]
     if path.is_dir():
        files = path.glob("*")
@@ -75,7 +100,7 @@ def version_file(name, version, repositories=None):
 
     ret = None
     for one in files:
-        vdat = VersionFile.parse_string(one.open().read())
+        vdat = VersionFile.parse_string(one.open().read()).as_dict()
         if not ret:
             ret = vdat
             continue
@@ -121,11 +146,20 @@ def table_file(name, version, repositories=None):
     # table_file = setting(vpath['versionblocks'][0]['settings'], 'table_file')[0]
 
     try:
-        return TableFile.parse_string(found.open().read())
+        return TableFile.parse_string(found.open().read()).as_dict()
     except ParseException as err:
         sys.stderr.write(str(found) + '\n')
         raise
 
+def product(name, version=None, flavor=None, quals=None, repositories=None):
+    '''
+    Return a product tuple object resolved from UPS repositories.
+
+    Resolution depends on set of information given.
+
+    (name,version) : 
+    '''
+    
 
 def _find_product_version(pdir, version):
     '''

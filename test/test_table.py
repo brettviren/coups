@@ -235,6 +235,7 @@ def parse(What, fname):
 
 # I should figure out parameterized tests...
 def test_parse_ups_table() : parse(TableFile, "ups.table")
+def test_parse_ups_version() : parse(TableFile, "ups.version")
 def test_parse_afs_table() : parse(TableFile, "afs.table")
 def test_parse_afs_version() : parse(VersionFile, "afs.version")
 def test_parse_kx509_table() : parse(TableFile, "kx509.table")

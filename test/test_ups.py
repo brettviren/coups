@@ -12,21 +12,35 @@ from coups import ups
 from coups.quals import dashed as dashed_quals
 from coups.table import TableFile
 from pathlib import Path
+import json
 
+# fixme: replicate local paths so tests do not depend on cvmfs
 repos = ["/cvmfs/fermilab.opensciencegrid.org/products/common/db",
          "/cvmfs/fermilab.opensciencegrid.org/products/common/prd",
          "/cvmfs/larsoft.opensciencegrid.org/products"]
 os.environ['PRODUCTS'] = ":".join(repos)
 
+def dump(n, p):
+    if not isinstance(p, dict):
+        p = p.as_dict()
+    jtext = json.dumps(p, indent=4)
+    print(f'{n}:\n{jtext}')
+
+
 def test_table_file():
     got = ups.table_file("ups", "6.1.0")
-    print(repr(got))
+    dump("table_file", got)
 
-def test_parse_ups_table_file():
-    path = Path(__file__).parent / "ups.table"
-    text = path.open().read()
-    got = TableFile.parse_string(text)
-    print(repr(got))
+
+def test_version_file():
+    got = ups.version_file("ups", "6.1.0")
+    dump("version_file", got)
+
+
+def test_chain_file():
+    got = ups.chain_file("ups")
+    dump("chain_file", got)
+
 
 def _do_test_quals(qualslist, isman=False):
     nam = "manifest" if isman else "product"

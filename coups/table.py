@@ -60,7 +60,7 @@ ArgString = pp.Suppress("(") + pp.SkipTo(pp.Suppress(")") + NL).set_results_name
 #COMMAND = pp.Group(Value.set_results_name("command") + pp.Suppress("(") + pp.ZeroOrMore(ArgList).set_results_name("arglist") + pp.Suppress(")") + NL)
 
 COMMAND = Value.set_results_name("command") + ArgString
-Commands = pp.Group(pp.OneOrMore(pp.Group(COMMAND))).set_results_name("commands")
+Commands = pp.Group(pp.ZeroOrMore(pp.Group(COMMAND))).set_results_name("commands")
 
 ActionBlock_ = ACTION + Commands
 ActionBlock = ActionBlock_.set_results_name("actionblock")
@@ -153,31 +153,6 @@ def simplify(tdat, version, flavor, quals):
     return tdat
 
     
-
-def dependencies(tdat, vdat=None):
-    '''
-    Return dependency information.
-
-    - tdat :: table file data structure
-
-    - vdat :: version file data structure
-
-    Return (prod, [required], [optional])
-
-    "prod" and elements of the two lists are product tuple objects.
-
-    Most "modern" table files do not provide version informaiton
-
-    
-a dict from TableFile.parse_string(table_text).as_dict()
-
-    If "version" is provided it will be baked into "prod".  O.w. any
-    version found in the table file will be used.  Note: most table
-    files do not include a version.
-
-    Table does not necessarily include a version.  To bake a version
-    into "prod", pass it
-    '''
 
 
 

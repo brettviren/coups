@@ -7,6 +7,7 @@ Handle UPS table (and version) file
 # This file is part of coups which is free software distributed under
 # the terms of the GNU Affero General Public License.
 
+import json
 from coups.util import vunderify, versionify
 import pyparsing as pp
 # print(f"pyparsing is version: {pp.__version__}")
@@ -26,9 +27,12 @@ ParseException = pp.ParseException
 #   <package>.version/<flavor>_<quals>.  The two seem the same
 #   internally.
 
+EmptyString = pp.Literal('""')
 DoubleQuotedString = pp.dbl_quoted_string.set_parse_action(pp.remove_quotes)
 
-Value = pp.Word(pp.alphas, pp.alphanums + "_") ^ DoubleQuotedString
+Ident = pp.Word(pp.alphas, pp.alphanums + "_")
+
+Value = Ident ^ DoubleQuotedString
 Vunder = pp.Word('v', pp.alphanums + '_')
 
 NL = pp.Suppress(pp.LineEnd())
@@ -48,14 +52,36 @@ END = pp.Suppress(pp.CaselessKeyword("end:") + NL)
 # Header = pp.Group(FILE + PRODUCT + pp.Opt(VUNDER)).set_results_name("header").ignore('#' + pp.restOfLine)
 
 FLAVOR = pp.Suppress(pp.CaselessKeyword("flavor") + '=') + RestOfLine('flavor') + NL
-QUALIFIERS = pp.Suppress(pp.CaselessKeyword("qualifiers") + '=') + pp.Opt(DoubleQuotedString ^ '""').set_results_name('qualifiers') + NL
 
-ACTION = pp.Suppress(pp.CaselessKeyword("action") + '=') + Value.set_results_name('action') + NL
+# sometimes we see quals like +abc:+xyz.  See SetupString
+PlusQual = pp.Suppress(pp.Opt("+")) + Ident + pp.Suppress(pp.Opt(":"))
+PlusQuals = pp.ZeroOrMore(PlusQual)
+
+BareQuals = pp.Word(pp.alphas, pp.alphanums + "_:")
+
+#QUALIFIERS = pp.Suppress(pp.CaselessKeyword("qualifiers") + '=') + pp.Opt(BareQuals ^ DoubleQuotedString ^ pp.Literal('""').suppress()).set_results_name('qualifiers') + NL
+
+KeywordQualifiers = pp.Suppress(pp.CaselessKeyword("qualifiers") + '=')
+EmptyQualifiers = KeywordQualifiers + pp.LineEnd()("qualifiers").set_parse_action(lambda x: [""])
+QuotedQualifiers = KeywordQualifiers + (DoubleQuotedString ^ EmptyString)("qualifiers") + NL
+BareQualifiers = KeywordQualifiers + BareQuals("qualifiers") + NL
+QUALIFIERS = pp.MatchFirst([EmptyQualifiers, QuotedQualifiers, BareQualifiers])
+
+# QUALIFIERS = pp.Suppress(pp.CaselessKeyword("qualifiers") + '=')
+# QUALIFIERS += pp.Opt(pp.MatchFirst([, pp.SkipTo(pp.LineEnd())])("qualifiers")) + NL
+#QUALIFIERS += RestOfLine("qualifiers").set_parse_action(pp.remove_quotes) + NL
+# pp.MatchFirst([NL, BareQuals("qualifiers")+NL, DoubleQuotedString("qualifiers")+NL, pp.Literal('""')("qualifiers")+NL])
+
+ACTION = pp.Suppress(pp.CaselessKeyword("action") + '=') + Ident.set_results_name('action') + NL
 
 # Command arguments can be almost arbitrary text, including
 # intervening ()'s. Many seem to expect to be evaluated as shell.  So,
 # here, we just punt and keep it a string
 ArgString = pp.Suppress("(") + pp.SkipTo(pp.Suppress(")") + NL).set_results_name("argstr") + pp.Suppress(")") + NL
+
+# An argstr for a setupRequired() or setupOptional() command.  Fixme: can -f flavor be given?
+SetupString = Ident("product") + pp.Opt(Vunder("vunder")) + pp.Opt("-q" + PlusQuals("quals"))
+
 
 #COMMAND = pp.Group(Value.set_results_name("command") + pp.Suppress("(") + pp.ZeroOrMore(ArgList).set_results_name("arglist") + pp.Suppress(")") + NL)
 
@@ -86,7 +112,7 @@ GroupBlock = GROUP + pp.ZeroOrMore(FlavorBlock_).set_results_name("flavorblocks"
 CommonBlock = COMMON + ActionBlocks + END
 
 # tantalizingly similar, but not 
-TableFile = (FILE + PRODUCT + pp.Opt(VUNDER) + (GroupBlock + CommonBlock ^ FlavorBlock)).ignore('#' + pp.restOfLine)
+TableFile = (FILE + PRODUCT + pp.Opt(VUNDER) + ((GroupBlock + CommonBlock) ^ FlavorBlock)).ignore('#' + pp.restOfLine)
 VersionFile = FILE + PRODUCT + VUNDER + pp.ZeroOrMore(VersionBlock_).set_results_name("versionblocks")
 ChainFile = FILE + PRODUCT + CHAIN + pp.ZeroOrMore(ChainBlock_).set_results_name("chainblocks")
 
@@ -133,9 +159,10 @@ def simplify(tdat, version, flavor, quals):
             found=fb
             break
     if not found:
+        print(json.dumps(fbs, indent=4))
         raise ValueError(f"No match for flavor={flavor} quals={quals}")
 
-    genact = {a['action'].lower():a['commands'] for a in found["actionblocks"]}
+    genact = {a['action'].lower():a['commands'] for a in found.get("actionblocks", [])}
     newacts = list()
     for ca in cas:
         #print(f'ca: {ca}')

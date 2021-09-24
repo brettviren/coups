@@ -1,0 +1,28 @@
+File=Table
+Product=gcc
+
+Group:
+Flavor=ANY
+Qualifiers=
+
+Common:
+
+Action=setup
+    prodDir()
+    setupEnv()
+    envSet(GCC_VERSION, ${UPS_PROD_VERSION} )
+    envSet(GCC_FQ_DIR, ${UPS_PROD_DIR}/${UPS_PROD_FLAVOR})
+    pathPrepend(PATH,${UPS_PROD_DIR}/${UPS_PROD_FLAVOR}/bin)
+    envPrepend(COMPILER_PATH, ${UPS_PROD_DIR}/${UPS_PROD_FLAVOR}/bin)
+    if ( test `uname` = "Darwin" )
+      envPrepend(DYLD_LIBRARY_PATH, ${UPS_PROD_DIR}/${UPS_PROD_FLAVOR}/lib)
+      envPrepend(DYLD_LIBRARY_PATH, ${UPS_PROD_DIR}/${UPS_PROD_FLAVOR}/lib64)
+    else()
+      if( test `lsb_release -si` = "Ubuntu" -o `lsb_release -si` = "LinuxMint" )
+        envPrepend(LD_LIBRARY_PATH, ${UPS_PROD_DIR}/${UPS_PROD_FLAVOR}/lib32)
+      else()
+        envPrepend(LD_LIBRARY_PATH, ${UPS_PROD_DIR}/${UPS_PROD_FLAVOR}/lib)
+      endif( test `lsb_release -si` = "Ubuntu" -o `lsb_release -si` = "LinuxMint" )
+      envPrepend(LD_LIBRARY_PATH, ${UPS_PROD_DIR}/${UPS_PROD_FLAVOR}/lib64)
+    endif ( test `uname` = "Darwin" )
+end:

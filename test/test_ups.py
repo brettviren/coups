@@ -27,19 +27,29 @@ def dump(n, p):
     print(f'{n}:\n{jtext}')
 
 
-def test_table_file():
-    got = ups.table_file("ups", "6.1.0")
-    dump("table_file", got)
+def test_table_file_multi_flavor():
+    got = ups.TableFileMultiFlavor("ups", "6.1.0")
+    dump("table_file_multi_flavor", got.dat)
 
+def test_table_file_narrow():
+    mf = ups.TableFileMultiFlavor("ups", "6.1.0")
+    got = mf.select('NULL', '')
+    dump("table_file", got.dat)
 
 def test_version_file():
-    got = ups.version_file("ups", "6.1.0")
-    dump("version_file", got)
-
+    got = ups.VersionFile("ups", "6.1.0")
+    dump("version_file", got.dat)
 
 def test_chain_file():
-    got = ups.chain_file("ups")
-    dump("chain_file", got)
+    got = ups.ChainFile("ups")
+    dump("chain_file", got.dat)
+
+
+def test_depgraph():
+    seed = ups.product_table("wirecell", "0.16.0a", "Linux64bit+3.10-2.17", "e20:prof")
+    graph = ups.dependency_graph(seed)
+    print(graph.nodes)
+
 
 
 def _do_test_quals(qualslist, isman=False):
@@ -58,3 +68,5 @@ def test_product_quals():
 def test_manifest_quals():
     from fodder import manifest_qualifiers
     _do_test_quals(manifest_qualifiers, True)    
+
+

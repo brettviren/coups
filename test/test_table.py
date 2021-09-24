@@ -9,6 +9,46 @@ def dump(n, p):
     print(f'{n}:\n{jtext}')
 
 
+def test_plusquals():
+    tries  = '''
++e20:+debug
++e20:+p392:+debug
++e19
+
+e20:+debug
+e20:p392:debug
+e19
+'''.split('\n')
+    for one in tries:
+        got = PlusQuals.parse_string(one)
+        dump(f'plusquals {one}', got)
+
+def test_setupcmd():
+    tries = '''\
+clang v7_0_0
+spdlog v1_8_2 -q +e20:+prof
+root v6_22_08d -q +e20:+p392:+prof
+boost v1_75_0 -q +e20:+prof
+jsoncpp v1_7_7e -q +e20:+prof
+jsonnet v0_17_0a -q +e20:+prof
+tbb v2021_1_1 -q +e20
+hdf5 v1_12_0b -q +e20:+prof
+gcc v9_3_0'''.split('\n')
+    for one in tries:
+        got = SetupString.parse_string(one)
+        dump(f'setupcmd {one}', got)
+
+
+def test_qualifiers():
+    tries = '''\
+Qualifiers=
+Qualifiers=""
+Qualifiers=e20:prof
+Qualifiers="e20:prof"'''.split('\n')
+    for one in tries:
+        got = QUALIFIERS.parse_string(one)
+        dump(f'qualifiers {one}', got)
+
 
 def test_argstr():
     text = '''
@@ -234,12 +274,18 @@ def parse(What, fname):
     
 
 # I should figure out parameterized tests...
+def test_parse_gcc_table() : parse(TableFile, "gcc.table")
+def test_parse_jsoncpp_table() : parse(TableFile, "jsoncpp.table")
+
 def test_parse_ups_table() : parse(TableFile, "ups.table")
-def test_parse_ups_version() : parse(TableFile, "ups.version")
+def test_parse_ups_version() : parse(VersionFile, "ups.version")
+
 def test_parse_afs_table() : parse(TableFile, "afs.table")
 def test_parse_afs_version() : parse(VersionFile, "afs.version")
+
 def test_parse_kx509_table() : parse(TableFile, "kx509.table")
 def test_parse_kx509_version() : parse(VersionFile,"kx509.version")
+
 def test_parse_wirecell_table() : parse(TableFile, "wirecell.table")
 def test_parse_wirecell_version() : parse(VersionFile, "wirecell.version")
 
@@ -270,3 +316,4 @@ def test_simp_wirecell() : simp("wirecell")
 
 def test_chain():
     parse(ChainFile, "cigetcert.chain")
+

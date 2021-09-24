@@ -11,10 +11,14 @@ We *always* encode a "version" not a "vunder" but we may render to a
 # the terms of the GNU Affero General Public License.
 
 import sys
+import json                     # for dump/debug
+import functools
 from coups.product import make as make_product
 from coups.util import vunderify, versionify
-from coups.table import TableFile, VersionFile, ChainFile, read_version, ParseException
+import coups.table
+
 from coups.quals import dashed as dashed_quals
+import networkx as nx
 
 from pathlib import Path
 import tarfile
@@ -36,7 +40,9 @@ def resolve(name, paths=None):
     Return list of pathlib.Path object by locating "name" in paths.
     '''
     if not paths:
-        paths = env("PRODUCTS", ":")
+        paths = list()
+
+    paths += env("PRODUCTS", ":")
 
     ret = list()
     for path in map(Path, paths):
@@ -45,68 +51,6 @@ def resolve(name, paths=None):
             ret.append(maybe)
     return ret
 
-
-def chain_file(name,  chain="current", repositories=None):
-    '''
-    Find chain file for named product.
-
-    A chain "file" associates (name,flavor)->(version,qualifers)
-
-    The '.chain' "file" may actually be a directory of chain files.
-    When encountered they are combined.
-
-    Return a parsed ChainFile as a dictionary.
-    '''
-    relfname = f'{name}/{chain}.chain'
-    paths = resolve(relfname, repositories)
-    if not paths:
-        raise ValueError(f'no file for chain {chain} for {name}')
-    path = paths[0]
-    if path.is_dir():
-        files = path.glob("*")
-    else:
-        files = [path]
-
-    ret = None
-    for one in files:
-        cdat = ChainFile.parse_string(one.open().read()).as_dict()
-        if not ret:
-            ret = cdat
-            continue
-        ret['chainblocks'] += cdat['chainblocks']
-    return ret
-
-
-def version_file(name, version, repositories=None):
-    '''
-    Find a version "file" return its data.
-
-    Some "files" are directories of files.  They are combined.
-
-    Return a parsed VersionFile as a dictionary.
-    '''
-    vunder = vunderify(version)
-
-    paths = resolve(f'{name}/{vunder}.version', repositories)
-    if not paths:
-        raise ValueError(f'no version file for {name} version {version}')
-    # print(paths)
-
-    path = paths[0]
-    if path.is_dir():
-       files = path.glob("*")
-    else:
-        files = [path]
-
-    ret = None
-    for one in files:
-        vdat = VersionFile.parse_string(one.open().read()).as_dict()
-        if not ret:
-            ret = vdat
-            continue
-        ret['versionblocks'] += vdat['versionblocks']
-    return ret
-    
 
 def setting(settings, key):
     '''
@@ -117,49 +61,283 @@ def setting(settings, key):
     return [x['val'] for x in settings if x['key'].lower() == key.lower()]
 
 
-def table_file(name, version, repositories=None):
+class ChainFile:
     '''
-    Find a table file
+    Represent a UPS chain file
     '''
-    vunder = vunderify(version)
 
-    # some hard wired locations.
-    tries = [
-        f'{name}/{name}.table',
-        f'{name}/{vunder}.table',
-        f'{name}/{vunder}/ups/{name}.table']
+    def __init__(self, name,  chain="current", dbs=None):
+        '''
+        Find chain file for named product.
 
-    found = None
-    for one in tries:
-        paths = resolve(one, repositories)
-        if paths:
-            found = paths[0]
-            break
-    if not found:
-        raise ValueError(f"no table file for {name} version {version}")
+        A chain "file" associates (name,flavor)->(version,qualifers)
 
-    # # need a version file?
-    # vpath = version_file(name, version, repositories)
-    # # fixme: factor this into 
-    # ups_dir = setting(vpath['versionblocks'][0]['settings'], 'ups_dir')[0]
-    # prod_dir = setting(vpath['versionblocks'][0]['settings'], 'prod_dir')[0]
-    # table_file = setting(vpath['versionblocks'][0]['settings'], 'table_file')[0]
+        The '.chain' "file" may actually be a directory of chain files.
+        When encountered they are combined.
 
-    try:
-        return TableFile.parse_string(found.open().read()).as_dict()
-    except ParseException as err:
-        sys.stderr.write(str(found) + '\n')
-        raise
+        Return a parsed ChainFile as a dictionary.
+        '''
+        relfname = f'{name}/{chain}.chain'
+        paths = resolve(relfname, dbs)
+        if not paths:
+            raise ValueError(f'no file for chain {chain} for {name}')
+        path = paths[0]
+        if path.is_dir():
+            files = path.glob("*")
+        else:
+            files = [path]
 
-def product(name, version=None, flavor=None, quals=None, repositories=None):
+        ret = None
+        for one in files:
+            cdat = coups.table.ChainFile.parse_string(one.open().read()).as_dict()
+            if not ret:
+                ret = cdat
+                continue
+            ret['chainblocks'] += cdat['chainblocks']
+        self.dat = ret
+
+
+    @property
+    def name(self):
+        return self.dat["product"]
+
+    @property
+    def chain(self):
+        return self.dat["chain"]
+
+    def version_quals(self, flavor):
+        'Return tuple (version,quals) for flavor'
+        for cb in self.dat["chainblocks"]:
+            if cb["flavor"] == flavor:
+                return versionify(cb["vunder"]), cb["qualifiers"]
+        raise ValueError(f'no flavor {flavor} in chain {self.chain} for product {self.name}')
+
+
+class VersionFile:
     '''
-    Return a product tuple object resolved from UPS repositories.
+    Represent a UPS version file
 
-    Resolution depends on set of information given.
+    A version "file" associates (name,version,flavor)->(table) 
 
-    (name,version) : 
     '''
+
+    def __init__(self, name, version, dbs=None):
+        '''
+        Find version file for named product.
+
+        The '.chain' "file" may actually be a directory of chain files.
+        When encountered they are combined.
+
+        Return a parsed ChainFile as a dictionary.
+        '''
+
+        vunder = vunderify(version)
+
+        paths = resolve(f'{name}/{vunder}.version', dbs)
+        if not paths:
+            raise ValueError(f'no version file for {name} version {version}')
+        # print(paths)
+
+        path = paths[0]
+        if path.is_dir():
+           files = path.glob("*")
+        else:
+            files = [path]
+
+        ret = None
+        for one in files:
+            vdat = coups.table.VersionFile.parse_string(one.open().read()).as_dict()
+            if not ret:
+                ret = vdat
+                continue
+            ret['versionblocks'] += vdat['versionblocks']
+        self.dat = ret
+
+
+
+class Command:
+    def __init__(self, dat):
+        self.dat = dat
+        
+    @property
+    def name(self):
+        return self.dat['command']
+
+    @property
+    def argstr(self):
+        return self.dat['argstr']
+
+
+class Action:
+    def __init__(self, dat):
+        self.dat = dat
+
+    @property
+    def name(self):
+        return self.dat['action'].lower()
+
+    @property
+    def commands(self):
+        for one in self.dat['commands']:
+            yield Command(one)
+
+
     
+class TableFile:
+    def __init__(self, tdat, dbs):
+        self.dat = tdat
+        self.dbs = dbs          # broader context
+        
+    @property
+    def name(self):
+        return self.dat["product"]
+    @property
+    def vunder(self):
+        return self.dat["vunder"]
+    @property
+    def version(self):
+        return versionify(self.vunder)
+    @property
+    def flavor(self):
+        return self.dat["flavorblock"]["flavor"]
+    @property
+    def quals(self):
+        return self.dat["flavorblock"]["qualifiers"]
+
+    @property
+    def tuple(self):
+        return make_product(self.name, self.version, self.flavor, self.quals)
+
+    def __str__(self):
+        return ' '.join([self.name, self.version, self.flavor, self.quals])
+        
+    def __repr__(self):
+        string = str(self)
+        return f'<TableFile {string}>'
+
+    @property
+    def actions(self):
+        fb = self.dat['flavorblock']        
+        ablks = fb.get("actions", [])
+        for one in ablks:
+            yield Action(one)
+
+    @functools.lru_cache
+    def required_table(self, argstr):
+        '''
+        Parse a setupRequired() or setupOptional() argstr and return a
+        corresponding product TableFile.
+        '''
+        adat = coups.table.SetupString.parse_string(argstr)
+        version = adat.get('vunder', None)
+        flavor = adat.get('flavor', self.flavor)
+        quals = ':'.join(adat.get('quals', []))
+        return product_table(adat['product'], version, flavor, quals, self.dbs)
+
+    @functools.cached_property
+    def deps(self):
+        req = list()
+        opt = list()
+        for act in self.actions:
+            print(f'{self.name} action: {act.name}')
+            if act.name != 'setup':
+                continue
+            for cmd in act.commands:
+                if cmd.name.lower() == 'setuprequired':
+                    req.append(self.required_table(cmd.argstr))
+                if cmd.name.lower() == 'setupoptional':
+                    opt.append(self.required_table(cmd.argstr))
+        return (req, opt)
+                    
+
+class TableFileMultiFlavor:
+    '''
+    Represent a UPS version file
+    '''
+    def __init__(self, name, version, tdat=None, dbs=None):
+        '''
+        Find a table file
+        '''
+        self.name = name
+        self.version = versionify(version)
+        self.dbs = dbs
+
+        vunder = vunderify(version)
+
+        # some hard wired locations.
+        tries = [
+            f'{name}/{name}.table',
+            f'{name}/{vunder}.table',
+            f'{name}/{vunder}/ups/{name}.table']
+
+        found = None
+        for one in tries:
+            paths = resolve(one, dbs)
+            if paths:
+                found = paths[0]
+                break
+        if not found:
+            raise ValueError(f"no table file for {name} version {version}")
+
+        try:
+            self.dat = coups.table.TableFile.parse_string(found.open().read()).as_dict()
+        except coups.table.ParseException:
+            sys.stderr.write(f'failed to parse {found}\n')
+            raise
+
+    def select(self, flavor, quals):
+        '''
+        Return a simplified tablefile matching flavor and quals
+        '''
+        return TableFile(coups.table.simplify(self.dat, self.version, flavor, quals), self.dbs)
+
+
+def product_table(name, version=None, flavor='NULL', quals=None, chain='current', dbs=None):
+    '''
+    Return a TableFile narrowed to a single product.
+
+    If version is not given then an attempt will be made to load a
+    chain file to resolve version (and quals) from flavor.
+
+    Flavor must be given.
+
+    Table and chain files are resolved against UPS "db" directories
+    listed in "dbs".
+
+    If no match is found, raise ValueError.
+    '''
+    if flavor and not version:
+        cf = ChainFile(name, dbs=dbs)
+        version,quals = cf.version_quals(flavor)
+
+    tf = TableFileMultiFlavor(name, version, dbs=dbs)
+    return tf.select(flavor, quals)
+    
+
+def dependency_graph(seed, graph=None):
+    '''
+    Return a graph holding seed and its dependencies.
+    '''
+    if graph is None:
+        graph = nx.DiGraph(title=f"dependencies for {seed}")
+
+    seed_node = str(seed)
+    print(f'seeding on <{seed_node}>')
+    graph.add_node(seed_node, obj=seed)
+    
+    def load(deps, required):
+        for dep in deps:
+            dependency_graph(dep, graph)
+            dep_node = str(dep)
+            print(f'require ({required}) <{dep_node}>')
+            graph.add_edge(seed_node, dep_node, required=required)
+
+    reqs, opts = seed.deps
+    load(reqs, True)
+    load(opts, False)
+    return graph
+
+
 
 def _find_product_version(pdir, version):
     '''
@@ -236,7 +414,7 @@ def product_tuple(fdat):
                         fdat.get('qualifiers', ''))
 
 
-def find_products(name, version=None, flavor=None, quals=None, repositories=None):
+def find_products(name, version=None, flavor=None, quals=None, dbs=None):
     '''
     Find all products in repository paths return a list of product tuples
 
@@ -245,7 +423,7 @@ def find_products(name, version=None, flavor=None, quals=None, repositories=None
     version = versionify(version)
     flavor = flavor or ''
     quals = setify_quals(quals)
-    pdirs = resolve(name, repositories)
+    pdirs = resolve(name, dbs)
     # print(f'{len(pdirs)} directories for {name}')
     vinfos = list()
     for pdir in pdirs:

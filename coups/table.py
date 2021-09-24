@@ -45,29 +45,33 @@ COMMON = pp.Suppress(pp.CaselessKeyword("common:") + NL)
 END = pp.Suppress(pp.CaselessKeyword("end:") + NL)
 
 # just for testing
-Header = pp.Group(FILE + PRODUCT + pp.Opt(VUNDER)).set_results_name("header").ignore('#' + pp.restOfLine)
+# Header = pp.Group(FILE + PRODUCT + pp.Opt(VUNDER)).set_results_name("header").ignore('#' + pp.restOfLine)
 
 FLAVOR = pp.Suppress(pp.CaselessKeyword("flavor") + '=') + RestOfLine('flavor') + NL
 QUALIFIERS = pp.Suppress(pp.CaselessKeyword("qualifiers") + '=') + pp.Opt(DoubleQuotedString ^ '""').set_results_name('qualifiers') + NL
 
-ACTION = pp.Suppress(pp.CaselessKeyword("action") + '=') + Value('action') + NL
+ACTION = pp.Suppress(pp.CaselessKeyword("action") + '=') + Value.set_results_name('action') + NL
 
 # Command arguments can be almost arbitrary text, including
 # intervening ()'s. Many seem to expect to be evaluated as shell.  So,
 # here, we just punt and keep it a string
-ArgList = pp.Suppress("(") + pp.SkipTo(pp.Suppress(")") + NL).set_results_name("argstr")
+ArgString = pp.Suppress("(") + pp.SkipTo(pp.Suppress(")") + NL).set_results_name("argstr") + pp.Suppress(")") + NL
 
 #COMMAND = pp.Group(Value.set_results_name("command") + pp.Suppress("(") + pp.ZeroOrMore(ArgList).set_results_name("arglist") + pp.Suppress(")") + NL)
-COMMAND = Value.set_results_name("command") + ArgList
-ActionBlock = ACTION + pp.OneOrMore(COMMAND).set_results_name("commands")
 
-ActionBlocks = (pp.ZeroOrMore(ActionBlock)).set_results_name("actions")
+COMMAND = Value.set_results_name("command") + ArgString
+Commands = pp.Group(pp.OneOrMore(pp.Group(COMMAND))).set_results_name("commands")
+
+ActionBlock_ = ACTION + Commands
+ActionBlock = ActionBlock_.set_results_name("actionblock")
+ActionBlocks = pp.Group(pp.OneOrMore(pp.Group(ActionBlock_))).set_results_name("actionblocks")
+
 
 Keyname = pp.NotAny(ACTION) + pp.NotAny(FLAVOR) + pp.Word(pp.alphas, pp.alphanums + '_').set_results_name("key")
 Keyvalue = RestOfLine.set_results_name("val")
 Setting_ = pp.Group(Keyname + '=' + Keyvalue + NL)
 Setting = Setting_.set_results_name("setting")
-Settings = pp.OneOrMore(Setting_).set_results_name("settings")
+Settings = pp.Group(pp.OneOrMore(Setting_)).set_results_name("settings")
 
 FlavorBlock_ = pp.Group(FLAVOR + QUALIFIERS + pp.Opt(Settings) + pp.Opt(ActionBlocks))
 FlavorBlock = FlavorBlock_.set_results_name("flavorblock")
@@ -79,7 +83,7 @@ ChainBlock_ = pp.Group(FLAVOR + VUNDER + QUALIFIERS + Settings)
 ChainBlock = ChainBlock_.set_results_name("chainblock")
 
 GroupBlock = GROUP + pp.ZeroOrMore(FlavorBlock_).set_results_name("flavorblocks")
-CommonBlock = COMMON + pp.ZeroOrMore(ActionBlock).set_results_name("commonactions") + END
+CommonBlock = COMMON + ActionBlocks + END
 
 # tantalizingly similar, but not 
 TableFile = (FILE + PRODUCT + pp.Opt(VUNDER) + (GroupBlock + CommonBlock ^ FlavorBlock)).ignore('#' + pp.restOfLine)
@@ -117,7 +121,7 @@ def simplify(tdat, version, flavor, quals):
     # which table file may (or not) leave unspecified.
 
     # remove these and will replace a flavorblock
-    cas = tdat.pop("commonactions")
+    cas = tdat.pop("actionblocks") # 'Common:' actions
     fbs = tdat.pop("flavorblocks")
 
     # must construct a singular 'flavorblock'
@@ -131,17 +135,17 @@ def simplify(tdat, version, flavor, quals):
     if not found:
         raise ValueError(f"No match for flavor={flavor} quals={quals}")
 
-    genact = {a['action'].lower():a['commands'] for a in found["actions"]}
+    genact = {a['action'].lower():a['commands'] for a in found["actionblocks"]}
     newacts = list()
     for ca in cas:
-        print(f'ca: {ca}')
+        #print(f'ca: {ca}')
         newcmds = list()
         for cmd in ca['commands']:
-            print(f'cmd: {cmd}')
+            # print(f'cmd: {cmd}')
             if cmd['command'].lower() in ('exeactionrequired', 'exeactionoptional'):
-                al = cmd['arglist']
-                print(al)
-                newcmds += genact[al[0].lower()]
+                al = cmd['argstr']
+                # print(al)
+                newcmds += genact[al.lower()]
                 continue
             newcmds.append(cmd)
         newacts.append(dict(action=ca['action'], commands=newcmds))

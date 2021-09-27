@@ -13,6 +13,7 @@ We *always* encode a "version" not a "vunder" but we may render to a
 import sys
 import json                     # for dump/debug
 import functools
+from collections import defaultdict
 from coups.product import make as make_product
 from coups.util import vunderify, versionify
 import coups.table
@@ -42,7 +43,7 @@ def resolve(name, paths=None):
     if not paths:
         paths = list()
 
-    paths += env("PRODUCTS", ":")
+    paths += env("COUPS_PRODUCTS", ":")
 
     ret = list()
     for path in map(Path, paths):
@@ -89,6 +90,7 @@ class ChainFile:
 
         ret = None
         for one in files:
+            print(f'parsing chain file: {one}')
             cdat = coups.table.ChainFile.parse_string(one.open().read()).as_dict()
             if not ret:
                 ret = cdat
@@ -105,11 +107,22 @@ class ChainFile:
     def chain(self):
         return self.dat["chain"]
 
-    def version_quals(self, flavor):
-        'Return tuple (version,quals) for flavor'
+    def version_quals(self, flavor, approx=False):
+        'Return tuple (version,quals) for matching flavor'
+
+        close = list()
         for cb in self.dat["chainblocks"]:
-            if cb["flavor"] == flavor:
+            have = cb["flavor"]
+            if have == flavor:
                 return versionify(cb["vunder"]), cb["qualifiers"]
+            if not have.startswith(flavor):
+                continue
+            close.append((len(have) - len(flavor), (versionify(cb["vunder"]), cb["qualifiers"]) ))
+
+        if close and approx:
+            close.sort()
+            return close[0][1]
+
         raise ValueError(f'no flavor {flavor} in chain {self.chain} for product {self.name}')
 
 
@@ -264,14 +277,13 @@ class TableFileMultiFlavor:
 
         vunder = vunderify(version)
 
-        # some hard wired locations.
-        tries = [
+        table_file_patterns = [
             f'{name}/{name}.table',
             f'{name}/{vunder}.table',
             f'{name}/{vunder}/ups/{name}.table']
-
+    
         found = None
-        for one in tries:
+        for one in table_file_patterns:
             paths = resolve(one, dbs)
             if paths:
                 found = paths[0]
@@ -291,6 +303,12 @@ class TableFileMultiFlavor:
         '''
         return TableFile(coups.table.simplify(self.dat, self.version, flavor, quals), self.dbs)
 
+def chain_version_quals(name, flavor, dbs=None, chain='current', approx=False):
+    '''
+    Return (version,quals) for (name,flavor) vis chain
+    '''
+    cf = ChainFile(name, dbs=dbs)
+    return cf.version_quals(flavor, approx)
 
 def product_table(name, version=None, flavor='NULL', quals=None, chain='current', dbs=None):
     '''
@@ -366,8 +384,8 @@ def _find_product_version(pdir, version):
             continue
         lines = list(vfile.open().readlines())
         try:
-            vobjs = read_version(list(lines))
-        except ParseException as err:
+            vobjs = coups.table.read_version(list(lines))
+        except coups.table.ParseException as err:
             print (vfile)
             print (''.join(lines))
             raise
@@ -513,12 +531,15 @@ def tarball(prod, paths=(), outdir="."):
     '''
     Product a product tar file from a product tuple, return its path.
     '''
-    outdir = Path(outdir)
+    if isinstance(paths, str):
+        paths = [ Path(paths) ]
+    if isinstance(paths, Path):
+        paths = [ paths ]
+    if isinstance(outdir, str):
+        outdir = Path(outdir)
 
-    tar_seeds = set()
 
     vpath, vdat = _select_version(prod.name, prod.version, prod.flavor, prod.quals, paths)
-    tar_seeds.add(_base_subdir(vpath, paths))
     prod = product_tuple(vdat)
 
     inst_dir = prod_dir = resolve(vdat['prod_dir'], paths)[0]
@@ -530,44 +551,75 @@ def tarball(prod, paths=(), outdir="."):
     if not inst_dir.exists():
         raise ValueError(f"no inst dir {inst_dir}")
 
-    tar_seeds.add(_base_subdir(inst_dir, paths))
-
     ups_dir = prod_dir / vdat['ups_dir']
     if not ups_dir.exists():
         raise ValueError(f"no ups dir {ups_dir}")
 
-    tar_seeds.add(_base_subdir(ups_dir, paths))
-
-    table_file = ups_dir / ( prod.name + ".table" )
+    table_file = resolve(prod.name + "/" + vdat['table_file'])[0]
     if not table_file.exists():
         raise ValueError(f"no table file {table_file}")
-    #print(table_file)
 
-    # print (tar_seeds)
 
+    tar_list = list()
+    tar_set = set()
+
+    def add_items(path):
+        print(f'adding: {path}')
+        if path.is_dir():
+            for one in path.glob("**"):
+                p,c = _base_subdir(one, paths)
+                if c in tar_set:
+                    continue
+                tar_set.add(c)
+                tar_list.append((p,c))
+            return
+        if path in tar_set:
+            return
+        tar_set.add(path)
+        tar_list.append(_base_subdir(path, paths))
+
+    add_items(vpath)
+    add_items(table_file)
+    add_items(ups_dir)
+    add_items(inst_dir)
+    
     tfpath = outdir / prod.filename
     if not tfpath.parent.exists():
         os.makedirs(tfpath.parent)
-
-    full_seeds = set([p/c for p,c in tar_seeds])
-    def already_contained(p,c):
-        f = p/c
-        for full in full_seeds:
-            try:
-                rp = f.relative_to(full)
-            except ValueError:
-                continue
-            if str(rp) == '.':
-                continue
-            return True
-        return False
-
-
+    
     tf = tarfile.open(str(tfpath), 'x:bz2')
-    for parent, child in tar_seeds:
-        if already_contained(parent, child):
-            continue
+    for parent, child in tar_list:
         fp = parent/child
-        print ('adding', parent, child)
+        print ('saving', child)
         tf.add(str(fp), str(child))
+    tf.close()
     return tfpath
+
+def table_in_tar(filename):
+    '''
+    Return text of table file found in tarfile.
+    '''
+
+    prod = coups.product.parse_filename(filename)
+    tf = tarfile.open(filename, "r:*")
+    for ti in tf.getmembers():
+        if '/test/' in ti.name:
+            continue            # many .table file in test dirs
+        if not ti.name.endswith(".table"):
+            continue
+
+        name=prod.name
+        vunder=vunderify(prod.version)
+        table_file_patterns = [
+            f'{name}/{name}.table',
+            f'{name}/{vunder}.table',
+            f'{name}/{vunder}/ups/{name}.table']
+        for one in table_file_patterns:
+            print(f'{ti.name} =?= {one}')
+            if ti.name == one:
+                return tf.extractfile(ti).read().decode()
+
+
+    raise ValueError(f'no UPS table file found in {filename}')
+
+    

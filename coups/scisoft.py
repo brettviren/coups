@@ -55,8 +55,10 @@ Identifiers
 
 import os
 import requests
+from requests.exceptions import *
 from bs4 import BeautifulSoup
 from coups.util import versionify, vunderify
+from pathlib import Path
 
 base_url = "https://scisoft.fnal.gov/scisoft"
 bundles_url = os.path.join(base_url, "bundles")
@@ -76,6 +78,14 @@ def get_manifest(mtp):
     url = os.path.join(manifest_url(mtp.name, mtp.version), mtp.filename)
     return requests.get(url).text
 
+def manifest_products(filename):
+    '''
+    Return list of products from text of manifest file on scisoft
+    '''
+    import coups.manifest
+    mtp = coups.manifest.parse_filename(filename)
+    text = get_manifest(mtp)
+    return coups.manifest.parse_body(text)
 
 def table(url):
     '''
@@ -187,17 +197,19 @@ def download_product(prod, todir="."):
     '''
     Download product tar file.
     '''
+    if isinstance(todir, str):
+        todir = Path(todir)
 
-    if not os.path.exists(todir):
-        os.makedirs(todir)
+    if not todir.exists():
+        todir.mkdir(parents=True)
 
     purl = product_url(prod.name, prod.version)
     furl = os.path.join(purl, prod.filename)
-    targ = os.path.join(todir, prod.filename)
+    targ = todir / prod.filename
 
     with requests.get(furl, stream=True) as req:
         req.raise_for_status()
-        with open(targ, 'wb') as fp:
+        with targ.open('wb') as fp:
             for chunk in req.iter_content(chunk_size=8192): 
                 fp.write(chunk)
     return targ

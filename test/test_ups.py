@@ -18,7 +18,7 @@ import json
 repos = ["/cvmfs/fermilab.opensciencegrid.org/products/common/db",
          "/cvmfs/fermilab.opensciencegrid.org/products/common/prd",
          "/cvmfs/larsoft.opensciencegrid.org/products"]
-os.environ['PRODUCTS'] = ":".join(repos)
+os.environ['COUPS_PRODUCTS'] = ":".join(repos)
 
 def dump(n, p):
     if not isinstance(p, dict):
@@ -70,3 +70,8 @@ def test_manifest_quals():
     _do_test_quals(manifest_qualifiers, True)    
 
 
+def test_chain_version_quals():
+    got = ups.chain_version_quals("ups", "Linux64bit+3.10-2.17")
+    print (f'|{got}|')
+    v,q = got
+    assert v == '6.0.7'         # very likely changes over time

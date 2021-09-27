@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 '''
 A main object used by CLI or embedded into some larger context.
+
+fixme: this has grown organically and needs refactoring.
 '''
 
 # Copyright Brett Viren 2021.
@@ -11,6 +13,7 @@ import os
 import sys
 from . import queries, graph
 from coups.store import *
+from coups import inserts
 from sqlalchemy.exc import IntegrityError
 import tarfile
 
@@ -33,35 +36,38 @@ class Coups:
         '''
         Return a simple query on Type in (Manifest, Product)
         '''
-        q = self.session.query(Type).filter_by(**kwds)
-        if flavor:
-            #print(f"query filter on flavor {flavor}")
-            q = q.filter(Type.flavor.has(Flavor.name==flavor))
-        if quals:
-            #print(f"query filter on quals {quals}")
-            if isinstance(quals, str):
-                quals = quals.split(":")
-            for qual in quals:
-                qt = aliased(Qual)
-                q = q.join(Type.quals.of_type(qt))
-                q = q.filter(qt.name == qual)
-        return q
+        return inserts.query(self.session, Type, flavor, quals, **kwds)
+        # q = self.session.query(Type).filter_by(**kwds)
+        # if flavor:
+        #     #print(f"query filter on flavor {flavor}")
+        #     q = q.filter(Type.flavor.has(Flavor.name==flavor))
+        # if quals:
+        #     #print(f"query filter on quals {quals}")
+        #     if isinstance(quals, str):
+        #         quals = quals.split(":")
+        #     for qual in quals:
+        #         qt = aliased(Qual)
+        #         q = q.join(Type.quals.of_type(qt))
+        #         q = q.filter(qt.name == qual)
+        # return q
 
     def qfirst(self, Type, **kwds):
         '''
         Perform query and return first
         '''
-        try:
-            return self.query(Type, **kwds).first()
-        except IntegrityError:
-            print(f'{Type} {kwds}')
-            raise
+        return inserts.qfirst(self.session, Type, **kwds)
+        # try:
+        #     return self.query(Type, **kwds).first()
+        # except IntegrityError:
+        #     print(f'{Type} {kwds}')
+        #     raise
 
     def qall(self, Type, **kwds):
         '''
         Perform query and return all
         '''
-        return self.query(Type, **kwds).all()
+        return inserts.qall(self.session, Type, **kwds)
+        # return self.query(Type, **kwds).all()
 
     
     def lookup(self, Type, flavor=None, quals=None, **kwds):
@@ -71,47 +77,50 @@ class Coups:
         If kwds resolve a query for object, return first match, else
         create, load and return a new one.
         '''
-        obj = self.qfirst(Type, flavor=flavor, quals=quals, **kwds)
-        if obj:
-            return obj
-        obj = Type(**kwds)
-        if flavor:
-            obj.flavor = self.lookup(Flavor, name=flavor)
-        if quals:
-            if isinstance(quals, str):
-                quals = quals.split(":")
-            for qual in quals:
-                obj.quals.append(self.lookup(Qual, name=qual))
-        self.session.add(obj)
-        return obj
+        return inserts.lookup(self.session, Type, flavor, quals, **kwds)
+        # obj = self.qfirst(Type, flavor=flavor, quals=quals, **kwds)
+        # if obj:
+        #     return obj
+        # obj = Type(**kwds)
+        # if flavor:
+        #     obj.flavor = self.lookup(Flavor, name=flavor)
+        # if quals:
+        #     if isinstance(quals, str):
+        #         quals = quals.split(":")
+        #     for qual in quals:
+        #         obj.quals.append(self.lookup(Qual, name=qual))
+        # self.session.add(obj)
+        # return obj
 
 
     def qual(self, name):
         '''
         Return a qual object of name, making it if needed.
         '''
-        if name is None:
-            raise ValueError("qualifier of None is illegal")
-        if not name:
-            raise ValueError("empty qualifier is illegal")
+        return inserts.qual(self.session, name)
+        # if name is None:
+        #     raise ValueError("qualifier of None is illegal")
+        # if not name:
+        #     raise ValueError("empty qualifier is illegal")
 
-        q1 = self.session.query(Qual).filter_by(name = name).all()
-        if q1:
-            return q1[0]
-        q1 = Qual(name=name)
-        self.session.add(q1)
-        return q1
+        # q1 = self.session.query(Qual).filter_by(name = name).all()
+        # if q1:
+        #     return q1[0]
+        # q1 = Qual(name=name)
+        # self.session.add(q1)
+        # return q1
 
     def flavor(self, name):
         '''
         Return a flavor object of name, making it if needed.
         '''
-        f1 = self.session.query(Flavor).filter_by(name = name).first()
-        if f1:
-            return f1
-        f1 = Flavor(name=name)
-        self.session.add(f1)
-        return f1
+        return inserts.flavor(self.session, name)
+        # f1 = self.session.query(Flavor).filter_by(name = name).first()
+        # if f1:
+        #     return f1
+        # f1 = Flavor(name=name)
+        # self.session.add(f1)
+        # return f1
 
     def manifest(self, mtp, return_existing=False):
         '''
@@ -122,25 +131,26 @@ class Coups:
         If return_existing is true, return a pair (manifest, bool) with
         second value true if the manifest was already existing.
         '''
-        m1 = queries.manifest(self.session, mtp)
-        if m1:
-            if return_existing:
-                return (m1, True)
-            return m1
+        return inserts.manifest(self.session, mtp, return_existing)
+        # m1 = queries.manifest(self.session, mtp)
+        # if m1:
+        #     if return_existing:
+        #         return (m1, True)
+        #     return m1
 
-        quals = list()
-        if mtp.quals:
-            for q in mtp.quals.split(":"):
-                quals.append(self.qual(q))
+        # quals = list()
+        # if mtp.quals:
+        #     for q in mtp.quals.split(":"):
+        #         quals.append(self.qual(q))
 
-        flavor = self.flavor(mtp.flavor)
-        m1 = Manifest(name=mtp.name, version=mtp.version,
-                      flavor=flavor, quals=quals,
-                      filename=mtp.filename)
-        self.session.add(m1)
-        if return_existing:
-            return (m1, False)
-        return m1
+        # flavor = self.flavor(mtp.flavor)
+        # m1 = Manifest(name=mtp.name, version=mtp.version,
+        #               flavor=flavor, quals=quals,
+        #               filename=mtp.filename)
+        # self.session.add(m1)
+        # if return_existing:
+        #     return (m1, False)
+        # return m1
 
     def product(self, ptp, return_existing=False):
         '''
@@ -148,22 +158,23 @@ class Coups:
 
         If it is not yet in the DB, it will be added.
         '''
-        pobj = self.session.query(Product).filter_by(filename = ptp.filename).first()
-        if pobj:
-            if return_existing:
-                return pobj, True
-            return pobj
+        return inserts.product(self.session, ptp, return_existing)
+        # pobj = self.session.query(Product).filter_by(filename = ptp.filename).first()
+        # if pobj:
+        #     if return_existing:
+        #         return pobj, True
+        #     return pobj
 
-        pobj = Product(name=ptp.name, version=ptp.version, filename=ptp.filename)
-        pobj.flavor = self.flavor(ptp.flavor)
-        if ptp.quals:
-            for q in ptp.quals.split(":"):
-                q1 = self.qual(q)
-                pobj.quals.append(q1)
-        self.session.add(pobj)
-        if return_existing:
-            return pobj, False
-        return pobj
+        # pobj = Product(name=ptp.name, version=ptp.version, filename=ptp.filename)
+        # pobj.flavor = self.flavor(ptp.flavor)
+        # if ptp.quals:
+        #     for q in ptp.quals.split(":"):
+        #         q1 = self.qual(q)
+        #         pobj.quals.append(q1)
+        # self.session.add(pobj)
+        # if return_existing:
+        #     return pobj, False
+        # return pobj
             
     def names(self, what, field="name"):
         '''
@@ -292,21 +303,6 @@ class Coups:
             edges.update(self.edges_from_m(m, distance))
 
         return graph.from_edges(edges)
-
-    def pack_product(self, prod, paths=(), outdir='.'):
-        '''
-        Product a product tar file.
-        '''
-
-    def get_table_file(self, filename):
-        '''
-        Return text of table file found in tarfile.
-        '''
-        tf = tarfile.open(filename, "r:*")
-        for ti in tf.getmembers():
-            if ti.name.endswith(".table"):
-                return tf.extractfile(ti).read().decode()
-        raise ValueError(f'no UPS table file found in {filename}')
 
     def product_dependencies(self, tdat):
         '''

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 '''
-Ensconce various queries 
+Ensconce various read-only (select) queries 
 '''
 
 # Copyright Brett Viren 2021.

@@ -179,19 +179,77 @@ def simplify(tdat, version, flavor, quals):
     tdat["flavorblock"] = dict(actions=newacts, flavor=flavor, qualifiers=quals)
     return tdat
 
-    
 
+def parse(text, prod=None):
+    '''
+    Parse table text.
 
+    Return a syntax tree as dict data.
 
+    The data structure reflects the single/old vs multi/new table
+    format.
 
+    If prod is given, a single/old format is returned possibly by
+    narrowing if multi/new is found.
+    '''
+    tdat = TableFile.parse_string(text).as_dict()
+    if not prod:
+        return tdat
+    return simplify(tdat, prod.version, prod.flavor, prod.quals)
 
+def deps(tdat, resolver, rdat=None):
+    '''
+    Return tuple (reqs,opts) each element a list of dependencies.
 
+    tdat must be a simplify()'ed data structure
 
+    resolver is a function taking an "sdat" from parsing "argstr" as
+    given to setupRequired() ro setupOptional() and returning a
+    simplified tdat.  See SetupString for what sdat's shape.
+    '''
+    reqs=list()
+    opts=list()
+    actions = tdat['flavorblock'].get('actions', [])
+    if not actions:
+        print('coups.table.deps: no actions for:')
+        print(json.dumps(tdat, indent=4))
+        return (reqs, opts)
+    for act in actions:
+        if act['action'].lower() != 'setup':
+            continue
+        #print (f'table.deps: {act}')
+        for cmd in act['commands']:
+            name = cmd['command'].lower()
+            argstr = cmd['argstr']
+            print(f'deps: {name}( {argstr} )')
 
+            if name == 'setuprequired':
+                sdat = SetupString.parse_string(argstr).as_dict()
+                reqs.append(resolver(sdat, rdat))
+
+            if name == 'setupoptional':
+                sdat = SetupString.parse_string(argstr).as_dict()
+                opts.append(resolver(sdat, rdat))
+
+    return (reqs, opts)
 
 
 ##########
-# old parsing below.  fixme: need to purge this
+# old parsing way below.  fixme: need to prune it
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 def skip(lines):
     while lines:

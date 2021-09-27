@@ -31,13 +31,13 @@ def check(prod, noisy=False):
         raise ValueError("product requires a filename")
     n,v,f,q = partition_filename(prod.filename)
     if n != prod.name:
-        raise ValueError(f'product name mismatch: have:{n} file:{prod.name}')
+        raise ValueError(f'product name mismatch: have {n} from {prod.filename} want {prod.name}')
     if v != prod.version:
-        raise ValueError(f'product version mismatch: have:{v} file:{prod.version}')
+        raise ValueError(f'product version mismatch: have {v} from {prod.filename} want {prod.version}')
     if f != prod.flavor:
-        raise ValueError(f'product flavor mismatch: have:{f} file:{prod.flavor}')
+        raise ValueError(f'product flavor mismatch: have {f} from {prod.filename} want {prod.flavor}')
     if q != prod.quals:
-        raise ValueError(f'product quals mismatch: have:{q} file:{prod.quals}')
+        raise ValueError(f'product quals mismatch: have {q} from {prod.filename} want {prod.quals}')
     
     fn = make_filename(prod.name, prod.version, prod.flavor, prod.quals)
     if fn != prod.filename:
@@ -114,7 +114,7 @@ def make(name, version, flavor=None, quals=None, filename=None):
     if flavor:
         plat = by_flavor(flavor) # check that we know it
     else:
-        flavor=''
+        flavor='NULL'
 
     # get into canoncial form and order
     quals = dashed_quals(quals).replace('-', ':')

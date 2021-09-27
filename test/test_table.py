@@ -25,6 +25,7 @@ e19
 
 def test_setupcmd():
     tries = '''\
+
 clang v7_0_0
 spdlog v1_8_2 -q +e20:+prof
 root v6_22_08d -q +e20:+p392:+prof

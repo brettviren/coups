@@ -199,3 +199,15 @@ def sort_submans(man, submans):
     submans = list(submans)
     submans.sort(key=lambda m: cmp(man, m)[1])
     return submans
+
+
+def read_file(manifest):
+    '''
+    Read manifest as a file name or pathlib.Path
+    '''
+    if isinstance(manifest, str):
+        from pathlib import Path
+        manifest = Path(manifest)
+
+    return manifest.open().read()
+

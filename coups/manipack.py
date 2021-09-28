@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 '''
 Handle manipacks (manifest + packed product tar files)
+
+Screw this module.  UPS config is just too damn difficult to use.
 '''
 
 # Copyright Brett Viren 2021.
@@ -18,6 +20,7 @@ import coups.scisoft
 import coups.inserts
 import coups.render
 import coups.ups
+from coups.util import versionify
 
 class Manipack:
 
@@ -45,7 +48,7 @@ class Manipack:
         self.upsdbs = upsdbs
         self.session = session
         self.seeds = list()
-        self.deps = networkx.DiGraph()
+        self.depgraph = networkx.DiGraph()
 
     def __str__(self):
         return f'{self.manifest}'
@@ -99,8 +102,8 @@ class Manipack:
         mobj, had = coups.inserts.manifest(self.session, self.mtp, True)
         if had:
             mobj.products.clear()
-        for node in self.deps:
-            prod = self.deps.nodes[node]["obj"]
+        for node in self.depgraph:
+            prod = self.depgraph.nodes[node]["obj"]
             pobj = coups.inserts.product(self.session, prod)
             mobj.products.append(pobj)
         self.session.commit()
@@ -110,11 +113,11 @@ class Manipack:
         Return text of our manifest as toplological sorted list of
         dependency graph nodes.
         '''
-        nodes = list(topological_sort(self.deps))
+        nodes = list(topological_sort(self.depgraph))
         nodes.reverse()
         lines = list()
         for node in nodes:
-            prod = self.deps.nodes[node]["obj"]
+            prod = self.depgraph.nodes[node]["obj"]
             line = renderer(prod)
             lines.append(line)
         lines.append("")        # end file with newline
@@ -129,12 +132,17 @@ class Manipack:
         if path.exists():
             return path
         try:
+            print(f'Downloading {prod.filename}')
             return coups.scisoft.download_product(prod, self.outdir)
         except coups.scisoft.HTTPError:
             pass
-        return coups.ups.tarball(prod, self.upsdbs, self.outdir)
+
+        raise ValueError(f'failed to get {prod.filename}')
+
+        # print(f'Repacking {prod.filename}')
+        # return coups.ups.tarball(prod, self.upsdbs, self.outdir)
         
-    @functools.cache
+#    @functools.cache
     def _resolve_tdat(self, sdat, prod):
         '''
         Return tdat (parsed and narrowed table data structure)
@@ -154,8 +162,8 @@ class Manipack:
             version = versionify(sdat['vunder'])
         flavor = sdat.get('flavor', prod.flavor)
         quals = ":".join(sdat.get('quals', prod.quals.split(":")))
-        want = self._resolve_four(self, name, version, flavor, quals)
-        got = coups.ups.tarball(want, self.upsdbs, self.outdir)
+        want = self._resolve_four(name, version, flavor, quals)
+        self._assure_tarfile(want)
         return self._get_tdat(want)
 
     def _resolve_four(self, name, version, flavor, quals):
@@ -164,7 +172,7 @@ class Manipack:
         '''
         four = (name, version, flavor, quals)
         print(f'resolving: {four}')
-        tries = set(self.seeds + [self.deps.nodes[n]['obj'] for n in self.deps.nodes])
+        tries = set(self.seeds + [self.depgraph.nodes[n]['obj'] for n in self.depgraph.nodes])
         for one in tries:
             if one[:4] == four:
                 ret = self._get_tdat(one)
@@ -189,8 +197,11 @@ class Manipack:
         tfile = self.outdir / prod.filename
         if not tfile.exists():
             tfile = self._assure_tarfile(prod)
+        print(f'Get table file in {tfile}')
         text = coups.ups.table_in_tar(tfile)
         tdat = coups.table.parse(text, prod)
+        print(f'_get_tdat: {type(tdat)}')
+        #print(json.dumps(tdat, indent=4))
         return tdat
 
     @functools.cache
@@ -199,22 +210,27 @@ class Manipack:
         Return list of products which on which prdocut prod depends.
         '''
         tdat = self._get_tdat(prod)
-        return coups.table.deps(tdat, self._resolve_tdat, prod)
+        reqs, opts = coups.table.deps(tdat, self._resolve_tdat, prod)
+        deps = reqs + opts
+        return [
+            coups.product.make(d['product'], versionify(d['vunder']),
+                               d.get('flavor', 'NULL'),
+                               d.get('qualifiers', '')) for d in deps]
 
     def _add_node(self, prod):
         '''
         Add product as a node
         '''
         node = self._id(prod)
-        if node in self.deps:
+        if node in self.depgraph:
             return
-        return self.deps.add_node(node, obj=prod)
+        return self.depgraph.add_node(node, obj=prod)
 
     def _add_edge(self, tail, head, **attr):
         '''
         Add an edge FROM <tail> TO <head>, both product tuple objects
         '''
-        return self.deps.add_edge(self._id(tail), self._id(head), **attr)
+        return self.depgraph.add_edge(self._id(tail), self._id(head), **attr)
 
     def _id(self, prod):
         '''
@@ -226,16 +242,14 @@ class Manipack:
         '''
         Process one product provided as a product.Product tuple object.
         '''
-        if self._id(prod) in self.deps:
+        if self._id(prod) in self.depgraph:
             return
         self._add_node(prod)
         deps = self._get_deps(prod)
         print(f'manipack: deps: {deps}')
-        for pair in deps:
-            for dep in pair:    # could differentiate req/opt
-                if not dep: continue
-                self._process_one(dep)
-                self.add_edge(prod, dep)
+        for dep in deps:
+            self._process_one(dep)
+            self.add_edge(prod, dep)
 
     def commit(self):
         '''

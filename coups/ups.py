@@ -235,7 +235,7 @@ class TableFile:
         for one in ablks:
             yield Action(one)
 
-    @functools.lru_cache
+    @functools.cache
     def required_table(self, argstr):
         '''
         Parse a setupRequired() or setupOptional() argstr and return a
@@ -530,6 +530,8 @@ def _base_subdir(path, paths):
 def tarball(prod, paths=(), outdir="."):
     '''
     Product a product tar file from a product tuple, return its path.
+
+    Warning, this function is flawed for many products.
     '''
     if isinstance(paths, str):
         paths = [ Path(paths) ]
@@ -598,28 +600,89 @@ def tarball(prod, paths=(), outdir="."):
 def table_in_tar(filename):
     '''
     Return text of table file found in tarfile.
+
+    This will use also rely on a <vunder>.version file or a directory
+    of the same name holding a flavor+quals based file name and from
+    that determine the table file to read.
     '''
 
     prod = coups.product.parse_filename(filename)
+    vunder = vunderify(prod.version)
+
+    want_version_path = f'{vunder}.version'
+    want_flavor_qual_path = prod.flavor
+    if prod.quals:
+        want_flavor_qual_path += "_" + prod.quals.replace(":","_")
+
     tf = tarfile.open(filename, "r:*")
-    for ti in tf.getmembers():
+
+    version_files = dict()      # should be only one
+    def check_version_file(ti):
+        if want_version_path not in ti.name:
+            return False
+        if ti.isdir():
+            return True
+        name = str(ti.name)
+        if name.endswith(want_version_path):
+            version_files[ti.name] = tf.extractfile(ti).read().decode()
+            return True
+        # it's a flavor file in a .version/ subdir...
+        if name.endswith("_"):  # some have a rat tail
+            name = name[:-1]
+        if name.endswith(want_flavor_qual_path):
+            version_files[ti.name] = tf.extractfile(ti).read().decode()            
+        return True
+    table_files = dict()
+    def check_table_file(ti):
+        if ti.name.endswith(".table"):
+            table_files[ti.name] = tf.extractfile(ti).read().decode()
+            return True
+        return False
+
+    for ti in tf.getmembers():  # must fully scan....
         if '/test/' in ti.name:
             continue            # many .table file in test dirs
-        if not ti.name.endswith(".table"):
+
+        if check_version_file(ti):
             continue
 
-        name=prod.name
-        vunder=vunderify(prod.version)
-        table_file_patterns = [
-            f'{name}/{name}.table',
-            f'{name}/{vunder}.table',
-            f'{name}/{vunder}/ups/{name}.table']
-        for one in table_file_patterns:
-            print(f'{ti.name} =?= {one}')
-            if ti.name == one:
-                return tf.extractfile(ti).read().decode()
+        if check_table_file(ti):
+            continue
 
+    if not table_files:
+        raise ValueError(f'no UPS table file found in {filename}')
 
-    raise ValueError(f'no UPS table file found in {filename}')
+    if len(table_files) == 1:
+        for text in table_files.values():
+            return text
+
+    # ambiguity, need version file.
+    if not version_files:
+        raise ValueError(f'no UPS version file found in {filename}')
+    if len(version_files) != 1:
+        sys.stderr.write(f'Warning, multiple version files in {filename}')
+    
+    for vpath, vtext in version_files.items():
+        vdat = coups.table.VersionFile.parse_string(vtext).as_dict()
+        for fb in vdat["versionblocks"]:
+            f = fb['flavor']
+            if f.endswith("_"):
+                f = f[:-1]
+            if f != prod.flavor:
+                continue
+            q = fb['qualifiers']
+            if q != prod.quals:
+                continue
+            sb = fb['settings']
+            prod_dir = setting(sb, 'prod_dir')[0]
+            ups_dir = setting(sb, 'ups_dir')[0]
+            table_file = setting(sb, 'table_file')[0]
+            tpath = '/'.join([prod_dir, ups_dir, table_file])
+            try:
+                return table_files[tpath]
+            except KeyError:
+                continue
+
+    raise ValueError(f'no UPS table file found from version files in {filename}')
 
     

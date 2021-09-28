@@ -225,7 +225,10 @@ def deps(tdat, resolver, rdat=None):
 
             if name == 'setuprequired':
                 sdat = SetupString.parse_string(argstr).as_dict()
-                reqs.append(resolver(sdat, rdat))
+                print(type(reqs), type(resolver), type(sdat), type(rdat))
+                got=resolver(sdat, rdat)
+                print(type(got))
+                reqs.append(got)
 
             if name == 'setupoptional':
                 sdat = SetupString.parse_string(argstr).as_dict()

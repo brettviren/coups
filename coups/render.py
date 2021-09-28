@@ -119,8 +119,8 @@ def dockerfile_manifest(from_image, man,
 
     quals = ":".join([str(q) for q in man.quals])
     qt = qual_types(quals)
-    build_spec = "-".join(qt.b)
-    qual_set = "-".join([q for q in [qt.o, qt.c] if q])
+    build_spec = qt.b
+    qual_set = "-".join([q for q in [qt.s, qt.c] if q])
 
     local_man=local_flag=""
     if local:

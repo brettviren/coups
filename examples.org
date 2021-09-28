@@ -1,0 +1,494 @@
+#+title: coups examples
+
+* Examples
+
+This section gives a tour of commands.  Any command which accepts a
+description of a manifest in terms of its name, version, flavor and
+quals may instead of the name be a manifest file name.  When given,
+the name, version and flavor are parsed from the filename and if these
+values are also given then they override what the filename provides.
+
+N.B. some of the following examples may not be 100% in sync with the
+code.
+
+** List bundles
+
+You can list bundles which are "known" (have at least one manifest in
+the local DB), are online on the scisoft server or are "missing"
+(online but not in DB):
+
+#+begin_example
+❯ coups bundles
+art artbase artdev canvas_base cmake_base dune geant4 icarus larbase larsoft larsoftobj larwire larwirebase python_tools uboone
+❯ coups bundles --online
+❯ coups bundles --missing
+#+end_example
+
+
+** Download manifests for a bundle and fill database
+
+A bundle of manifests can be downloaded and filled into the local
+database:
+
+#+begin_example
+❯ coups load-bundle larsoft
+....long first time load
+❯ coups load-bundle larsoft
+have manifest, not refreshing at:
+https://scisoft.fnal.gov/scisoft/bundles/larsoft/v09_28_04/manifest/larsoft-09.28.04-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt
+#+end_example
+
+It can take minutes to hours depending on how many manifests are in a
+bundle.  The loading progresses in order of scisoft (decreasing
+version) so killing the process (~Ctrl-c~) after some time is a
+reasonable way to get just the latest.
+
+
+** Compare two manifests
+
+#+begin_example
+❯ coups compare {larsoft,larbase}-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt
+only larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt:
+	cetbuildtools-8.13.03-noarch.tar.bz2
+	...
+both
+	TRACE-3.17.01-sl7-x86_64.tar.bz2
+	...
+only larbase-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt:
+	cmake-3.19.6-sl7-x86_64.tar.bz2
+	cmake-3.20.0-sl7-x86_64.tar.bz2
+	sphinx-3.5.4a-sl7-x86_64.tar.bz2
+#+end_example
+
+** Compare two bundles
+
+This will look for all manifests, assuming the two bundles differ only
+in their name, and show a trio of set-differences: 
+
+#+begin_center
+(only in first, intersection, only in second)
+#+end_center
+
+#+begin_example
+❯ coups compare-bundles larsoft larbase
+(24, 128, 1) larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt larbase-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+(24, 129, 1) larsoft-09.28.04-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt larbase-09.28.04-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt
+...
+#+end_example
+
+
+** Explore what products exist
+
+#+begin_example
+❯ coups products -v v0.16.0a  wirecell
+<Product(1779,wirecell,0.16.0a,Linux64bit+3.10-2.17,c7:debug,wirecell-0.16.0a-sl7-x86_64-c7-debug.tar.bz2)>
+<Product(1858,wirecell,0.16.0a,Linux64bit+3.10-2.17,c7:prof,wirecell-0.16.0a-sl7-x86_64-c7-prof.tar.bz2)>
+<Product(1934,wirecell,0.16.0a,Linux64bit+3.10-2.17,debug:e20,wirecell-0.16.0a-sl7-x86_64-e20-debug.tar.bz2)>
+<Product(2002,wirecell,0.16.0a,Linux64bit+3.10-2.17,e20:prof,wirecell-0.16.0a-sl7-x86_64-e20-prof.tar.bz2)>
+#+end_example
+
+** Explore what manifests provide products
+
+#+begin_example
+❯ coups contains -v 0.16.0a  wirecell
+wirecell-0.16.0a-sl7-x86_64-c7-debug.tar.bz2
+	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt
+	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt
+wirecell-0.16.0a-sl7-x86_64-c7-prof.tar.bz2
+	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-c7-prof_MANIFEST.txt
+	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-c7-prof_MANIFEST.txt
+wirecell-0.16.0a-sl7-x86_64-e20-debug.tar.bz2
+	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-debug_MANIFEST.txt
+	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-e20-debug_MANIFEST.txt
+wirecell-0.16.0a-sl7-x86_64-e20-prof.tar.bz2
+	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+#+end_example
+
+** Explore what manifests exists
+
+#+begin_example
+❯ coups manifests larwire
+❯ coups manifests larwire -v 09.02.13
+larwire-09.02.13-Linux64bit+3.10-2.17-s110-c7-debug_MANIFEST.txt
+larwire-09.02.13-Linux64bit+3.10-2.17-s110-c7-prof_MANIFEST.txt
+larwire-09.02.13-Linux64bit+3.10-2.17-s110-e20-debug_MANIFEST.txt
+larwire-09.02.13-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+❯ coups manifests larwire -q s112
+larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-c7-debug_MANIFEST.txt
+larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-c7-prof_MANIFEST.txt
+...
+#+end_example
+
+** Dump a manifest back to file
+
+#+begin_example
+❯ coups manifest  dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+writing dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+❯ coups manifest  dune -v 09.28.04 -f Linux64bit+3.10-2.17 -q e20:prof
+writing dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+#+end_example
+
+** Find subset manifests
+
+A (parent) manifest may be factored into one or more children
+manifests such that a child provides products also provided by the
+parent.  A child may be a strict or a "near" subset of the parent.  A
+strict subset provides no additional products not also provided by the
+parent.  A "near" subset provides some number of additional products.
+
+*** Strict subset
+
+Here, ~coups~ factors the manifest, identified by a fully-qualifying
+manifest filename, into strict subsets.
+
+#+begin_example
+❯ coups subsets larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+		common:71 adds:0
+	larsoftobj-09.07.01.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+		common:76 adds:0
+	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+		common:169 adds:0
+#+end_example
+
+*** Near subsets
+
+Here, the ~coups~ allows for a subset to be considered a factor if it
+provides no more than 1 additional product not in the original
+manifest.
+
+#+begin_example
+❯ coups subsets -n1 larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+		common:71 adds:0
+	larsoftobj-09.07.01.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+		common:76 adds:0
+	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+		common:169 adds:0
+#+end_example
+
+*** Extra subsets
+
+Some manifests are "distant near" subsets in that they add many
+additional products.  If a flat factoring were to be attempted that
+allows for the required additional products then many subsets would be
+found that enlarge the product pool in unwanted ways
+
+#+begin_example
+# don't want this
+❯ coups subsets -n5 larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+        ...
+	libtorch-1.6.0b-Linux64bit+3.10-2.17-e19-prof_MANIFEST.txt
+		common:1 adds:5 = gcc, protobuf, openblas, libtorch, cmake
+        ...
+	art-3.09.03-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+		common:46 adds:5 = cmake, cmake, cmake, cmake, sphinx
+        ...
+#+end_example
+
+Here we find ~art~ is a "distant near" subset but weirdly adding many
+~cmake~ products and ~sphinx~.  We may decide they are worth accepting
+in order to make a general ~art~ layer that can be used by others.
+
+However, we also find many other manifests that are technically near
+subsets at the same distance but which add substantially large
+products which we don't want such as the ~libtorch~ manifests.
+
+We can give ~coups~ this extra information to guide the factoring:
+
+#+begin_example
+❯ coups subsets --extras art:5 larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+	art-3.09.03-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+		common:46 adds:5 = cmake, cmake, cmake, sphinx, cmake
+	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+		common:71 adds:0
+	larsoftobj-09.07.01.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+		common:76 adds:0
+	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+		common:169 adds:0
+#+end_example
+
+We suspect further factoring may exist:
+
+#+begin_example
+❯ coups subsets art-3.09.03-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+art-3.09.03-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	canvas_base-3.12.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+		common:49 adds:0
+	art-3.09.03-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+		common:51 adds:0
+#+end_example
+
+Thus, define a final factoring:
+
+#+begin_example
+❯ coups subsets --extras art:5,canvas_base:5 larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+	canvas_base-3.12.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+		common:44 adds:5 = cmake, cmake, cmake, sphinx, cmake
+	art-3.09.03-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+		common:46 adds:5 = cmake, cmake, cmake, sphinx, cmake
+	larwire-09.02.13.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+		common:71 adds:0
+	larsoftobj-09.07.01.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+		common:76 adds:0
+	larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+		common:169 adds:0
+#+end_example
+
+It is important to understand that this factoring is based on
+information that has been put into the database.  If, for this
+example, ~canvas_base~ bundle was not loaded, this last factoring would
+not be discovered.  To assure exhaustive factoring, one must scrape
+all available bundles.
+
+** Well Tempered Container
+
+The main goal of *coups* is to produce container images which have
+layers that mirror the subset structure implicit in manifests.  We
+wish the layering to be as fine grained as possible in order to enable
+maximal reuse with minimal image size.  As in the example above, one
+user may wish to have ~art~ without the addition of ~larsoft~ while
+another may require all of ~larsoft~.
+
+To build such containers, one first explores the factoring as above
+and then transfers the command from ~subsets~ to ~container~.
+
+
+#+begin_example
+❯ coups container \
+  -o build.sh --builder docker \
+  --extras art:5,canvas_base:5 \
+  larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt 
+❯ bash build.sh
+❯ docker image list
+REPOSITORY                     TAG                                         IMAGE ID       CREATED        SIZE
+brettviren/coups-larsoft       09.28.02.01-Linux64bit-3.10-2.17-e20-prof   8ec2d0ccfa41   17 hours ago   20.3GB
+brettviren/coups-larsoftobj    09.07.01.01-Linux64bit-3.10-2.17-e20-prof   c604a195d30b   18 hours ago   8.85GB
+brettviren/coups-larwire       09.02.13.01-Linux64bit-3.10-2.17-e20-prof   4004a5afe3e2   18 hours ago   8.82GB
+brettviren/coups-art           3.09.03-Linux64bit-3.10-2.17-e20-prof       9936deed5753   18 hours ago   7.01GB
+brettviren/coups-canvas_base   3.12.04-Linux64bit-3.10-2.17-e20-prof       a781ca985448   18 hours ago   6.79GB
+❯ docker run -ti brettviren/coups-larsoft:09.28.02.01-Linux64bit-3.10-2.17-e20-prof
+[root@b43dd134d017 /]# du -sh /products
+20G	/products
+[root@b43dd134d017 /]# du -sm /products/* | sort -n | tail
+575	/products/wirecell
+627	/products/g4neutron
+660	/products/grpc
+739	/products/genie_xsec
+783	/products/g4surface
+1085	/products/pythia8
+1088	/products/boost
+1187	/products/larreco
+1271	/products/gcc
+1867	/products/root
+#+end_example
+
+The 20GB ~/products/~ directory can be cut in half by removing
+unnecessary copies of source code and by calling ~strip~ on every shared
+library ~.so~ file.  The space savings comes at a cost of making the
+result somewhat unfriendly to profiling or debugging usages.  And, the
+result is still rather large.
+
+#+begin_example
+❯ coups container \
+  --strip -o build.sh --builder docker \
+  --extras art:5,canvas_base:5 \
+  larsoft-09.28.02.01-Linux64bit+3.10-2.17-s112-e20-prof_MANIFEST.txt
+❯ bash build.sh
+❯ docker image list
+REPOSITORY                     TAG                                               IMAGE ID       CREATED             SIZE
+brettviren/coups-larsoft       09.28.02.01-Linux64bit-3.10-2.17-e20-prof-strip   74cb4e920d89   20 seconds ago      12.4GB
+brettviren/coups-larsoftobj    09.07.01.01-Linux64bit-3.10-2.17-e20-prof-strip   364069bf9ae9   10 minutes ago      5.66GB
+brettviren/coups-larwire       09.02.13.01-Linux64bit-3.10-2.17-e20-prof-strip   3ce5099d9295   11 minutes ago      5.22GB
+brettviren/coups-art           3.09.03-Linux64bit-3.10-2.17-e20-prof-strip       f566626c6b20   13 minutes ago      4.51GB
+brettviren/coups-canvas_base   3.12.04-Linux64bit-3.10-2.17-e20-prof-strip       2bb945d160f7   14 minutes ago      4.15GB
+11G	/products
+[root@523912558a1a /]# du -sm /products/* | sort -n | tail
+355	/products/g4emlow
+456	/products/tensorflow
+470	/products/sphinx
+497	/products/root
+571	/products/g4tendl
+627	/products/g4neutron
+704	/products/pythia8
+739	/products/genie_xsec
+783	/products/g4surface
+1190	/products/gcc
+#+end_example
+
+** Different container builders
+
+Though the difference is small, ~coups~ supports use of ~docker~ or ~podman~
+in the scripts it renders.
+
+#+begin_example
+❯ coups container --builder docker [ ... ]
+❯ coups container --builder podman [ ... ]
+#+end_example
+
+** Removing unwanted manifests
+
+Some manifests are just bogus and that can cause problems.  For
+example, some manifests are largely empty which naturally foil the
+subset factoring.  To remove them from the database simply:
+
+#+begin_example
+❯ coups remove larsoft-0.02.01-Linux64bit+2.6-2.12-debug_MANIFEST.txt
+❯ coups remove geant4-4.10.3.p01a-Linux64bit+4.4-2.23-e14-qt-debug_MANIFEST.txt
+#+end_example
+
+** Fixing broken manifests with your own customization
+
+A manifest should be created in a way that respects the actual
+dependencies of its constituent products.  That is, if product A
+depends on product B of a given version, flavor, quals then B should
+be included in the manifest that includes product A.
+
+However, given that Fermilab has a giant reservoir of products and
+does not perform hermetic builds it is easy for mistakes to go
+unnoticed.  For example:
+
+#+begin_example
+❯ coups manifests dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt|egrep 'dunetpc|valgrind'
+	dunetpc-09.28.04-slf7-x86_64-e20-prof.tar.bz2
+	valgrind-3.16.1-sl7-x86_64.tar.bz2
+#+end_example
+
+But
+
+#+begin_example
+❯ grep valgrind /cvmfs/dune.opensciencegrid.org/products/dune/dunetpc/v09_28_04/ups/dunetpc.table|head -1
+    setupRequired( valgrind v3_17_0 )
+#+end_example
+
+To fix this
+
+#+begin_example
+❯ coups manifest \
+  -o dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt \
+  dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+#+end_example
+
+Edit the file written to change the ~valgrind~ line.
+
+#+begin_example
+❯ diff dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+14c14
+< valgrind             v3_17_0         valgrind-3.17.0-sl7-x86_64.tar.bz2                           -f Linux64bit+3.10-2.17    
+---
+> valgrind             v3_16_1         valgrind-3.16.1-sl7-x86_64.tar.bz2                           -f Linux64bit+3.10-2.17
+#+end_example
+
+It can now be loaded and used just like any other.
+
+However, as the "wrong" ~valgrind~ is still provided by the old subset
+manifests, unless they are also all corrected then their set "near"
+distance will be one greater and they will fall out of the subset
+factoring:
+
+#+begin_example
+❯ coups load-manifest dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+❯ coups subsets --extras art:1,canvas_base:1 dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	libtorch-1.6.0b-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+
+#+end_example
+
+Simply extend the "near" distance and hope no garbage leaks in.
+
+#+begin_example
+❯ coups subsets --extras art:2,canvas_base:2 -n1 dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	libtorch-1.6.0b-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	canvas_base-3.10.02d-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	+ valgrind, sphinx
+	art-3.06.03d-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	+ valgrind, sphinx
+	larsoftobj-09.07.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	+ valgrind
+	larwire-09.02.13-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+	+ valgrind
+	larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+	+ valgrind
+	dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+	+ valgrind
+	dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+#+end_example
+
+Note the "wrong" ~dune~ manifest is a near subset.  This will be
+advantageous as the fixed container can reuse this predecessor.
+
+#+begin_example
+❯ coups container \
+  -o build-dune-fix.sh \
+  --extras art:2,canvas_base:2 -n1 \
+  dune-09.28.04a-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+❯ bash build-dune-fix.sh
+#+end_example
+
+** Custom manifests
+
+~coups~ allows construction and use of custom manifests.  With these we
+can fix problems like the above or provide additional products.  The
+steps are simple:
+
+#+begin_example
+❯ coups manifest  dune -v 09.28.04 -f Linux64bit+3.10-2.17 -q e20:prof
+writing dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+❯ mv dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt \
+     dune-09.28.04.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+❯ emacs dune-09.28.04.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+❯ coups load-manifest  dune-09.28.04.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+❯ coups container \
+  --manifests local -o build-dune-01 \
+  --extras art:1,canvas_base:1 \
+  dune-09.28.04.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+❯ tree build-dune-01
+build-dune-01
+└── brettviren
+    ├── coups-art:3.06.03d-slf7-prof-e20
+    │   ├── art-3.06.03d-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+    │   └── Dockerfile
+    ├── coups-canvas_base:3.10.02d-slf7-prof-e20
+    │   ├── canvas_base-3.10.02d-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+    │   └── Dockerfile
+    ├── coups-dune:09.28.04.01-slf7-prof-e20
+    │   ├── Dockerfile
+    │   └── dune-09.28.04.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+    ├── coups-dune:09.28.04-slf7-prof-e20
+    │   ├── Dockerfile
+    │   └── dune-09.28.04-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+    ├── coups-larsoft:09.28.04-slf7-s110-prof-e20
+    │   ├── Dockerfile
+    │   └── larsoft-09.28.04-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+    ├── coups-larsoftobj:09.07.01-slf7-prof-e20
+    │   ├── Dockerfile
+    │   └── larsoftobj-09.07.01-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+    ├── coups-larwire:09.02.13-slf7-s110-prof-e20
+    │   ├── Dockerfile
+    │   └── larwire-09.02.13-Linux64bit+3.10-2.17-s110-e20-prof_MANIFEST.txt
+    ├── coups-libtorch:1.6.0b-slf7-prof-e20
+    │   ├── Dockerfile
+    │   └── libtorch-1.6.0b-Linux64bit+3.10-2.17-e20-prof_MANIFEST.txt
+    └── coups-slf7-base:0.1
+        └── Dockerfile
+❯ bash build-dune-01.sh
+❯ docker run -ti brettviren/coups-dune:09.28.04.01-slf7-prof-e20
+[root@eeaacb409943 /]# source /products/setup
+[root@eeaacb409943 /]# setup dunetpc v09_28_04 -q e20:prof
+#+end_example
+
+Take note the above switched to a directory to hold the docker build
+context instead of piping the Dockerfile to docker's stdin.  This is
+to also deliver the custom manifest file.  Inspecting the Dockerfile
+one may see the manifest file being copied in and ~pullProducts~ being
+told to use this file instead of trying to download it from Scisoft.
+For consistency, all manifest files are provided "locally" in this
+mode even though they may be identical to what is available from
+Scisoft.
+
